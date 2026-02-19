@@ -1,0 +1,45 @@
+# InSpec Results
+results/*
+!results/.gitkeep
+*.json
+*.html
+
+# Temporary files
+*.tmp
+*.log
+*.swp
+*.bak
+*~
+.DS_Store
+Thumbs.db
+
+# InSpec
+.inspec/
+inspec.lock
+
+# Container extraction
+tmp/
+temp/
+rootfs/
+*.tar
+.tmp/
+
+# IDE
+.vscode/
+.idea/
+*.sublime-*
+.windsurf/
+
+# OS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent

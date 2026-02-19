@@ -1,0 +1,64 @@
+# Copyright (c) 2025 Cisco Systems, Inc. and/or its affiliates
+# Copyright (c) 2025 Chainguard
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: chainguard_stig_v3r2
+title: Chainguard GPOS STIG Compliance Profile
+maintainer: steve.beattie@chainguard.dev
+copyright: Copyright (c) 2025 Chainguard
+license: Apache-2.0
+summary: DISA STIG compliance validation for Chainguard container images
+version: 0.0.1
+supports:
+  - platform: linux
+
+inputs:
+  - name: expected_hash
+    description: Expected SHA-256 hash of CA bundle
+    type: string
+    required: true
+    value: 766392c21c0baf5fa722cb309dc576b89d9fb3323dd32aa45a939dd575db6d1c
+  - name: rootfs
+    description: Path to extracted container root filesystem
+    type: string
+    required: true
+    value: /
+  - name: allowed_repositories
+    description: List of approved package repository prefixes
+    type: array
+    required: true
+    value:
+      - https://apk.cgr.dev/chainguard
+      - https://packages.cgr.dev/extras
+      - https://packages.wolfi.dev/os
+      - https://apk.cgr.dev/
+  - name: banned_remote_packages
+    description: Packages that must not be present in the APK database
+    type: array
+    required: true
+    value:
+      - openssh
+      - openssh-server
+      - openssh-client
+      - openssh-sftp-server
+      - dropbear
+      - tigervnc
+      - tigervnc-server
+      - tigervnc-viewer
+      - xrdp
+      - xorgxrdp
+      - vsftpd
+      - proftpd
+      - webmin
+      - cockpit
+      - cockpit-ws
