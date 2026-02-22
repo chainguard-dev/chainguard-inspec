@@ -118,9 +118,32 @@ control 'oval:org.OpenSsl:def:1' do
       its('content') { should match(/^\s*\.include\s+fipsmodule\.cnf\s*$/) }
     end
 
-    describe ini(conf_file) do
-      its('provider_sect.fips') { should cmp 'fips_sect' }
-      its('algorithm_sect.default_properties') { should cmp 'fips=yes' }
+    # Check provider_sect and its fips setting
+    describe "OpenSSL config #{File.basename(conf_file)}: [provider_sect] configuration" do
+      subject { ini(conf_file) }
+
+      it 'has [provider_sect] section with fips = fips_sect' do
+        expect(subject['provider_sect']).not_to be_nil,
+          "[provider_sect] section is missing from #{conf_file}"
+        expect(subject['provider_sect']['fips']).not_to be_nil,
+          "[provider_sect] section exists but 'fips' key is missing in #{conf_file}"
+        expect(subject['provider_sect']['fips']).to eq('fips_sect'),
+          "[provider_sect] fips should be 'fips_sect' but got '#{subject['provider_sect']&.[]('fips')}' in #{conf_file}"
+      end
+    end
+
+    # Check algorithm_sect and its default_properties setting
+    describe "OpenSSL config #{File.basename(conf_file)}: [algorithm_sect] configuration" do
+      subject { ini(conf_file) }
+
+      it 'has [algorithm_sect] section with default_properties = fips=yes' do
+        expect(subject['algorithm_sect']).not_to be_nil,
+          "[algorithm_sect] section is missing from #{conf_file}"
+        expect(subject['algorithm_sect']['default_properties']).not_to be_nil,
+          "[algorithm_sect] section exists but 'default_properties' key is missing in #{conf_file}"
+        expect(subject['algorithm_sect']['default_properties']).to eq('fips=yes'),
+          "[algorithm_sect] default_properties should be 'fips=yes' but got '#{subject['algorithm_sect']&.[]('default_properties')}' in #{conf_file}"
+      end
     end
 
     next unless file_resource.exist? && !file_resource.content.empty?
@@ -134,6 +157,7 @@ control 'oval:org.OpenSsl:def:1' do
     end
   end
 
+  # Verify that the expected openssl fips packages are installed
   installed_db_resource = file(installed_db_path)
 
   describe installed_db_resource do
