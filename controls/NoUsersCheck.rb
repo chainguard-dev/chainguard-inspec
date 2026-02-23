@@ -1,5 +1,5 @@
 # Copyright (c) 2025 Cisco Systems, Inc. and/or its affiliates
-# Copyright (c) 2025 Chainguard
+# Copyright (c) 2026 Chainguard
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -69,6 +69,9 @@ control 'oval:org.NoUsers:def:1' do
     'CCI-000135', 'CCI-003627'
   ]
 
+  allowed_usernames = input('allowed_extra_users')
+  allowed_shells = %w[/sbin/nologin /usr/sbin/nologin /bin/false]
+
   rootfs = ENV['ROOTFS_DIR'] || input('rootfs')
   shadow_path = File.join(rootfs, 'etc/shadow')
   passwd_path = File.join(rootfs, 'etc/passwd')
@@ -111,9 +114,6 @@ control 'oval:org.NoUsers:def:1' do
                           else
                             []
                           end
-
-  allowed_usernames = %w[_apt messagebus nonroot]
-  allowed_shells = %w[/sbin/nologin /usr/sbin/nologin /bin/false]
 
   account_details = accounts_after_nobody.map do |entry|
     parts = entry.split(':')

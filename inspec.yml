@@ -1,5 +1,5 @@
 # Copyright (c) 2025 Cisco Systems, Inc. and/or its affiliates
-# Copyright (c) 2025 Chainguard
+# Copyright (c) 2026 Chainguard
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -42,6 +42,16 @@ inputs:
       - https://packages.cgr.dev/extras
       - https://packages.wolfi.dev/os
       - https://apk.cgr.dev/
+  - name: allowed_extra_users
+    # user added by apko as part of the image build should be detected
+    # and considered allowed automatically.
+    description: List of allowed added users in the environment
+    type: array
+    required: true
+    value:
+      - _apt
+      - messagebus
+      - nonroot
   - name: banned_remote_packages
     description: Packages that must not be present in the APK database
     type: array
