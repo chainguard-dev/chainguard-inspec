@@ -26,7 +26,7 @@ require 'cgi'
 class StigHtmlGenerator
   attr_reader :data, :output_file, :container_name, :container_label, :container_sha256, :stig_mappings
 
-  def initialize(json_file, output_file, container_name: nil, container_label: nil, container_sha256: nil)
+  def initialize(json_file, output_file, container_name: nil, container_label: nil, container_sha256: nil, xccdf_path: nil)
     @json_file = json_file
     @output_file = output_file
     @container_name = container_name
@@ -37,7 +37,7 @@ class StigHtmlGenerator
     # Load STIG mappings for descriptions
     script_dir = File.dirname(File.expand_path(__FILE__))
     require File.join(script_dir, '../libraries/stig_mappings')
-    @stig_mappings = StigMappings.new
+    @stig_mappings = StigMappings.new(xccdf_path)
   end
 
   def get_stig_rule_details(rule_id)
@@ -1371,7 +1371,7 @@ end
 # CLI execution
 if __FILE__ == $0
   if ARGV.length < 2
-    puts "Usage: #{$0} <input.json> <output.html> [--container-name NAME] [--container-label LABEL] [--container-sha256 SHA]"
+    puts "Usage: #{$0} <input.json> <output.html> [--container-name NAME] [--container-label LABEL] [--container-sha256 SHA] [--xccdf-path PATH]"
     exit 1
   end
 
@@ -1390,6 +1390,9 @@ if __FILE__ == $0
       i += 2
     when '--container-sha256'
       options[:container_sha256] = ARGV[i + 1]
+      i += 2
+    when '--xccdf-path'
+      options[:xccdf_path] = ARGV[i + 1]
       i += 2
     else
       i += 1
