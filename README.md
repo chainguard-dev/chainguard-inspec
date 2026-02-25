@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This repository provides a InSpec profile to evaluate Chainguard container images against the DISA GPOS v3r2 requirements with controls that mirror the [chainguard-dev/stigs](https://github.com/chainguard-dev/stigs/releases/tag/v3.2.6) benchmark.
+This repository provides an InSpec profile to evaluate Chainguard container images against the DISA GPOS v3r2 requirements with controls that mirror the [chainguard-dev/stigs](https://github.com/chainguard-dev/stigs/releases/tag/v3.2.6) benchmark.
 
 ## Components
 
