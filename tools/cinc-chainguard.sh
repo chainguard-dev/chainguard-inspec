@@ -27,6 +27,11 @@ USE_TMPFS=true
 TMPFS_BASE=""
 ROOTFS_DIR=""
 
+# If not using the embedded profile, will need to override the location
+# of the XCCDF gpos profile to get the detailed information about the
+# individual stig controls.
+REPORT_SCRIPT_XCCDF_LOCATION="${REPORT_SCRIPT_XCCDF_LOCATION:-/usr/share/xml/scap/ssg/content/ssg-chainguard-gpos-ds.xml}"
+
 cleanup() {
     set +e
     if [ -n "$ROOTFS_DIR" ] && [ -d "$ROOTFS_DIR" ]; then
@@ -283,7 +288,8 @@ if $USE_EMBEDDED_PROFILE; then
         "/results/$(basename "$OUTPUT_HTML")" \
         --container-name "$IMAGE_NAME_NO_DIGEST" \
         --container-label "$LABEL" \
-        --container-sha256 "$IMAGE_DIGEST"
+        --container-sha256 "$IMAGE_DIGEST" \
+        --xccdf-path "$REPORT_SCRIPT_XCCDF_LOCATION"
     HTML_EXIT_CODE=$?
 else
     ruby "$REPORT_SCRIPT_HOST" \
@@ -291,7 +297,8 @@ else
         "$OUTPUT_HTML" \
         --container-name "$IMAGE_NAME_NO_DIGEST" \
         --container-label "$LABEL" \
-        --container-sha256 "$IMAGE_DIGEST"
+        --container-sha256 "$IMAGE_DIGEST" \
+        --xccdf-path "$REPORT_SCRIPT_XCCDF_LOCATION"
     HTML_EXIT_CODE=$?
 fi
 
