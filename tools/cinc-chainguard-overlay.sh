@@ -33,7 +33,6 @@ source "${SCRIPT_DIR}/lib/cinc-common.sh"
 
 CONTAINER_ID=""
 START_CONTAINER=false
-ASLR_CAPTURE_DIR=""
 
 cleanup() {
     set +e
@@ -43,9 +42,6 @@ cleanup() {
         fi
         echo "Removing target container..."
         docker rm "${CONTAINER_ID}" >/dev/null 2>&1 || true
-    fi
-    if [ -n "${ASLR_CAPTURE_DIR}" ] && [ -d "${ASLR_CAPTURE_DIR}" ]; then
-        rm -rf "${ASLR_CAPTURE_DIR}"
     fi
 }
 
@@ -126,7 +122,6 @@ cinc_setup_output_paths "stig"
 cinc_print_scan_header "Live overlay"
 cinc_pull_image
 cinc_get_image_digest
-cinc_capture_aslr
 
 echo "Creating container from image..."
 CONTAINER_ID="$(docker create "${IMAGE}")"
@@ -166,17 +161,10 @@ fi
 
 echo "Container overlay filesystem: ${MERGED_DIR}"
 
-# ASLR is a host kernel setting — it cannot be read from the image filesystem.
-# Write the captured value into a temporary directory and mount it into the
-# cinc-auditor container at /rootfs/.runtime_capture so the controls can read
-# it, without touching the overlay's writable upper layer.
-ASLR_CAPTURE_DIR="$(mktemp -d)"
-echo "${ASLR_VALUE}" > "${ASLR_CAPTURE_DIR}/aslr_setting"
-chmod 644 "${ASLR_CAPTURE_DIR}/aslr_setting"
-EXTRA_AUDITOR_ARGS+=(
-    -v "${ASLR_CAPTURE_DIR}:/rootfs/.runtime_capture:ro"
-    --userns=host
-)
+# ASLR cannot be injected into the read-only overlay filesystem.  The
+# AslrCheck control falls back to reading /proc/sys/kernel/randomize_va_space
+# directly, which is accessible to the privileged cinc-auditor container.
+EXTRA_AUDITOR_ARGS+=(--userns=host)
 
 ROOTFS_MOUNT="${MERGED_DIR}"
 cinc_run_auditor
