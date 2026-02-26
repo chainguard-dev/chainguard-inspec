@@ -51,6 +51,10 @@ ASLR_SETTING_LOCATION="${ASLR_SETTING_LOCATION:-/proc/sys/kernel/randomize_va_sp
 REPORT_SCRIPT_XCCDF_LOCATION="${REPORT_SCRIPT_XCCDF_LOCATION:-/usr/share/xml/scap/ssg/content/ssg-chainguard-gpos-ds.xml}"
 USE_EMBEDDED_PROFILE=true
 EXTRA_AUDITOR_ARGS=()
+# Path to the rootfs inside the cinc-auditor container.  Defaults to /rootfs
+# for bind-mount-based scripts.  Override (e.g. /proc/<PID>/root) for scripts
+# that access the filesystem via --pid=host without a bind mount.
+ROOTFS_CONTAINER_PATH=""
 
 # ---------------------------------------------------------------------------
 # Prerequisite checks
@@ -184,15 +188,20 @@ cinc_capture_aslr() {
 # ---------------------------------------------------------------------------
 # Cinc Auditor execution
 # ---------------------------------------------------------------------------
-# Requires: ROOTFS_MOUNT (host path to bind-mount as /rootfs)
-#           RESULTS_DIR, OUTPUT_JSON
+# Requires: RESULTS_DIR, OUTPUT_JSON
 #           USE_EMBEDDED_PROFILE, PROFILE_PATH, PROFILE_DIR
 #           CINC_AUDITOR_IMAGE
-# Optional: EXTRA_AUDITOR_ARGS array (append before calling this function)
+# Optional: ROOTFS_MOUNT         - host path to bind-mount as the rootfs
+#                                  (leave empty to skip the bind mount, e.g.
+#                                  when using --pid=host + /proc/<PID>/root)
+#           ROOTFS_CONTAINER_PATH- path to rootfs inside cinc-auditor container
+#                                  (defaults to /rootfs)
+#           EXTRA_AUDITOR_ARGS   - array of additional docker run arguments
 # Sets: INSPEC_EXIT_CODE
 cinc_run_auditor() {
     local inspec_json_basename
     inspec_json_basename="$(basename "${OUTPUT_JSON}")"
+    local rootfs_path="${ROOTFS_CONTAINER_PATH:-/rootfs}"
 
     echo "Running Cinc Auditor..."
     set +e
@@ -201,10 +210,13 @@ cinc_run_auditor() {
         --privileged
         --platform linux/amd64
         --user 0:0
-        -e ROOTFS_DIR=/rootfs
-        -v "${ROOTFS_MOUNT}:/rootfs:ro"
+        -e ROOTFS_DIR="${rootfs_path}"
         -v "${RESULTS_DIR}:/results:rw"
     )
+
+    if [ -n "${ROOTFS_MOUNT:-}" ]; then
+        auditor_args+=(-v "${ROOTFS_MOUNT}:${rootfs_path}:ro")
+    fi
 
     if ! $USE_EMBEDDED_PROFILE; then
         auditor_args+=(-v "${PROFILE_DIR}:/profile:ro")
@@ -220,7 +232,7 @@ cinc_run_auditor() {
           --no-create-lockfile \
           --reporter cli \
           --reporter "json:/results/${inspec_json_basename}" \
-          --input rootfs=/rootfs
+          --input "rootfs=${rootfs_path}"
     INSPEC_EXIT_CODE=$?
     set -e
 }
