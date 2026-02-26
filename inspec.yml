@@ -72,3 +72,7 @@ inputs:
       - webmin
       - cockpit
       - cockpit-ws
+  - name: skip_fips_checks
+    description: Skip exercising the checks for FIPS-approved crytpography
+    type: Boolean
+    value: false
