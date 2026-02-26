@@ -1,5 +1,5 @@
 # Copyright (c) 2025 Cisco Systems, Inc. and/or its affiliates
-# Copyright (c) 2025 Chainguard
+# Copyright (c) 2026 Chainguard
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -27,7 +27,7 @@ control 'oval:org.CABundleHash:def:1' do
 
   tag ccis: ['CCI-004909']
 
-  expected_hash = input('expected_hash')
+  expected_hash = input('expected_cacert_hash')
   rootfs = ENV['ROOTFS_DIR'] || input('rootfs')
   bundle_path = File.join(rootfs, 'etc/ssl/certs/ca-certificates.crt')
 

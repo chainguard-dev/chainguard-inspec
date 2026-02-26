@@ -23,7 +23,7 @@ supports:
   - platform: linux
 
 inputs:
-  - name: expected_hash
+  - name: expected_cacert_hash
     description: Expected SHA-256 hash of CA bundle
     type: string
     required: true
