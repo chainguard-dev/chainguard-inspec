@@ -32,7 +32,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib/cinc-common.sh"
 
 CONTAINER_ID=""
-START_CONTAINER=false
+START_CONTAINER=true
 
 cleanup() {
     set +e
@@ -49,12 +49,14 @@ trap cleanup EXIT
 
 usage() {
     cat <<'USAGE'
-Usage: cinc-chainguard-overlay.sh [--start-container] [--use-local-profile] <image> [label] [results-dir]
+Usage: cinc-chainguard-overlay.sh [--no-start-container] [--use-local-profile] <image> [label] [results-dir]
 
 Arguments:
-  --start-container    Start the container before inspecting its overlay filesystem.
-                       Use this if the overlay is not mounted after docker create alone
-                       on your Docker configuration.
+  --no-start-container Skip starting the container before inspecting its overlay
+                       filesystem.  By default the container is started because
+                       most Docker configurations only mount the overlay filesystem
+                       once the container is running.  Use this only if your Docker
+                       configuration mounts the overlay at docker create time.
   --use-local-profile  Mount local profile and run reports with host Ruby (developer mode)
   image            Container image to scan (required)
   label            Environment label (default: dev)
@@ -76,8 +78,8 @@ USAGE
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --start-container)
-            START_CONTAINER=true
+        --no-start-container)
+            START_CONTAINER=false
             shift
             ;;
         --use-local-profile)
@@ -155,7 +157,14 @@ fi
 # so this check works for unprivileged users in the docker group.
 if ! awk -v path="${MERGED_DIR}" '$2 == path && $3 == "overlay" { found=1 } END { exit !found }' /proc/mounts; then
     echo "Error: no overlay filesystem mounted at ${MERGED_DIR}." >&2
-    echo "       Try --start-container to ensure the overlay is mounted before inspection." >&2
+    if $START_CONTAINER; then
+        echo "       The container was started but the overlay is still not mounted." >&2
+        echo "       Check that Docker is using the overlay2 storage driver and that" >&2
+        echo "       the Docker daemon has sufficient privileges." >&2
+    else
+        echo "       The overlay filesystem is not mounted after docker create alone on" >&2
+        echo "       most Docker configurations.  Re-run without --no-start-container." >&2
+    fi
     exit 1
 fi
 
