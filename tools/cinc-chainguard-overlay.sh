@@ -155,8 +155,11 @@ if [ -z "${MERGED_DIR}" ]; then
     exit 1
 fi
 
-if [ ! -d "${MERGED_DIR}/etc" ]; then
-    echo "Error: overlay filesystem at ${MERGED_DIR} does not look like a valid rootfs." >&2
+# Verify the overlay is actually mounted at MergedDir by checking /proc/mounts.
+# Accessing MergedDir directly requires root, but /proc/mounts is world-readable,
+# so this check works for unprivileged users in the docker group.
+if ! awk -v path="${MERGED_DIR}" '$2 == path && $3 == "overlay" { found=1 } END { exit !found }' /proc/mounts; then
+    echo "Error: no overlay filesystem mounted at ${MERGED_DIR}." >&2
     echo "       Try --start-container to ensure the overlay is mounted before inspection." >&2
     exit 1
 fi
@@ -170,7 +173,10 @@ echo "Container overlay filesystem: ${MERGED_DIR}"
 ASLR_CAPTURE_DIR="$(mktemp -d)"
 echo "${ASLR_VALUE}" > "${ASLR_CAPTURE_DIR}/aslr_setting"
 chmod 644 "${ASLR_CAPTURE_DIR}/aslr_setting"
-EXTRA_AUDITOR_ARGS+=(-v "${ASLR_CAPTURE_DIR}:/rootfs/.runtime_capture:ro")
+EXTRA_AUDITOR_ARGS+=(
+    -v "${ASLR_CAPTURE_DIR}:/rootfs/.runtime_capture:ro"
+    --userns=host
+)
 
 ROOTFS_MOUNT="${MERGED_DIR}"
 cinc_run_auditor
