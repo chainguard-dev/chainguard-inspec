@@ -28,9 +28,17 @@ control 'aslr-runtime-check' do
   rootfs = ENV['ROOTFS_DIR'] || input('rootfs')
   sysctl_path = File.join(rootfs, 'proc/sys/kernel/randomize_va_space')
   runtime_capture_path = File.join(rootfs, '.runtime_capture', 'aslr_setting')
+  # Fallback for scan modes where neither rootfs-relative path is accessible
+  # (e.g. overlay scan where /proc is not mounted and ASLR capture cannot be
+  # injected into the read-only merged filesystem).  Uses InSpec's file()
+  # resource so that on remote transports (ssh://, docker://) this resolves
+  # against the target system, not the local machine.
+  host_sysctl_path = '/proc/sys/kernel/randomize_va_space'
 
   only_if('Runtime ASLR setting must have been captured during scan') do
-    file(sysctl_path).exist? or file(runtime_capture_path).exist?
+    file(sysctl_path).exist? or
+      file(runtime_capture_path).exist? or
+      file(host_sysctl_path).exist?
   end
 
   aslr_path =
@@ -38,6 +46,8 @@ control 'aslr-runtime-check' do
       sysctl_path
     elsif file(runtime_capture_path).exist?
       runtime_capture_path
+    elsif file(host_sysctl_path).exist?
+      host_sysctl_path
     end
 
   aslr_value = file(aslr_path).content.strip
