@@ -163,6 +163,28 @@ docker run --rm \
 
 - **Testing**: re-run scans after modifications and review the resulting HTML evidence for regressions.
 
+### Pre-commit hooks
+
+A [pre-commit](https://pre-commit.com/) configuration is provided for local development.
+Ensure `pre-commit` and `shellcheck` are available on your system (both are available
+via your system package manager, or `pre-commit` can be installed via `uv` or `pip`),
+then enable the hooks with:
+
+```bash
+pre-commit install
+```
+
+The hooks enforce:
+- Trailing whitespace removal, end-of-file newlines, and LF line endings
+- YAML validity and merge conflict marker detection
+- `shellcheck` linting of all shell scripts under `tools/`
+
+The `shellcheck` hook uses the **system-installed** `shellcheck` binary rather than
+a bundled version fetched from the internet.
+
+> **Note**: This section will likely be split into a dedicated contributing/development
+> document as the project grows.
+
 ## License
 
 This project is distributed under the Apache License 2.0. See `LICENSE` for the complete text.
