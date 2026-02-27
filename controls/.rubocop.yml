@@ -1,0 +1,60 @@
+# InSpec-specific rubocop overrides for controls/
+#
+# Explicitly inherits the root config; relaxes only the cops that
+# conflict with InSpec's DSL structure or control file conventions.
+inherit_from: ../.rubocop.yml
+
+# --- Naming ---
+
+# InSpec control files use PascalCase names by convention
+# (AslrCheck.rb, NoUsersCheck.rb, etc.).
+Naming/FileName:
+  Enabled: false
+
+# --- Metrics ---
+
+# control blocks are inherently long: STIG metadata (tag stig_rules,
+# tag ccis) and per-file evidence loops belong together in one block.
+Metrics/BlockLength:
+  Enabled: false
+
+# Controls iterating over package databases or config files are
+# inherently complex; these metrics add noise without guidance.
+Metrics/AbcSize:
+  Enabled: false
+
+Metrics/CyclomaticComplexity:
+  Enabled: false
+
+Metrics/PerceivedComplexity:
+  Enabled: false
+
+# --- Layout ---
+
+# Evidence strings, it/describe labels with interpolated runtime
+# values (paths, counts, user names) can exceed any hard limit.
+Layout/LineLength:
+  Max: 200
+
+# --- Style ---
+
+# InSpec controls use double-quoted strings by convention: paths,
+# usernames, and interpolated values appear throughout.
+Style/StringLiterals:
+  EnforcedStyle: double_quotes
+
+# Helper methods inside a control block (e.g. find_uid_by_username,
+# normalize_repo_url) are idiomatic InSpec: they scope
+# control-specific logic to the control that needs it.
+Lint/NestedMethodDefinition:
+  Enabled: false
+
+# if/else evidence-building (building distinct evidence strings for
+# passing vs. failing assertions) is clearer as explicit branches.
+Style/ConditionalAssignment:
+  Enabled: false
+
+# Single-character block parameters (|f|, |u|, |a|, |p|) are
+# idiomatic in InSpec DSL map/select/each/find blocks.
+Naming/BlockParameterName:
+  MinNameLength: 1

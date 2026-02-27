@@ -17,3 +17,17 @@ repos:
         entry: shellcheck
         args: [-s, bash, -x, -P, tools]
         types: [shell]
+
+      - id: ruby-syntax-check
+        name: ruby syntax check
+        language: system
+        entry: rubocop
+        args: [--only, Lint/Syntax, --format, simple]
+        types: [ruby]
+
+      - id: rubocop
+        name: rubocop
+        language: system
+        entry: rubocop
+        types: [ruby]
+        stages: [manual]
