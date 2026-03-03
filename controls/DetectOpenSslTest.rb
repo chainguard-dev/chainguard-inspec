@@ -39,7 +39,7 @@ control 'oval:org.OpenSsl:def:1' do
 
   rootfs = ENV['ROOTFS_DIR'] || input('rootfs')
   ssl_dir = File.join(rootfs, 'etc/ssl')
-  installed_db_path = File.join(rootfs, 'lib/apk/db/installed')
+  installed_db_path = File.join(rootfs, 'usr/lib/apk/db/installed')
   skip_fips_checks = input('skip_fips_checks', value: false)
 
   only_if('Check for FIPS approved cryptography') { !skip_fips_checks }
