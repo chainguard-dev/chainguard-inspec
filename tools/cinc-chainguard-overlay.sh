@@ -170,10 +170,11 @@ fi
 
 echo "Container overlay filesystem: ${MERGED_DIR}"
 
-# ASLR cannot be injected into the read-only overlay filesystem.  The
-# AslrCheck control falls back to reading /proc/sys/kernel/randomize_va_space
+# ASLR cannot be injected into the read-only overlay filesystem.  Enable the
+# host procfs fallback in AslrCheck so it reads /proc/sys/kernel/randomize_va_space
 # directly, which is accessible to the privileged cinc-auditor container.
 EXTRA_AUDITOR_ARGS+=(--userns=host)
+EXTRA_INSPEC_ARGS+=(--input allow_host_aslr_fallback=true)
 
 ROOTFS_MOUNT="${MERGED_DIR}"
 cinc_run_auditor
