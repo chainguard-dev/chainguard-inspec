@@ -51,6 +51,9 @@ ASLR_SETTING_LOCATION="${ASLR_SETTING_LOCATION:-/proc/sys/kernel/randomize_va_sp
 REPORT_SCRIPT_XCCDF_LOCATION="${REPORT_SCRIPT_XCCDF_LOCATION:-/usr/share/xml/scap/ssg/content/ssg-chainguard-gpos-ds.xml}"
 USE_EMBEDDED_PROFILE=true
 EXTRA_AUDITOR_ARGS=()
+# Additional arguments passed to cinc-auditor exec (e.g. --input key=value).
+# Append before calling cinc_run_auditor.
+EXTRA_INSPEC_ARGS=()
 # Path to the rootfs inside the cinc-auditor container.  Defaults to /rootfs
 # for bind-mount-based scripts.  Override (e.g. /proc/<PID>/root) for scripts
 # that access the filesystem via --pid=host without a bind mount.
@@ -226,13 +229,21 @@ cinc_run_auditor() {
         auditor_args+=("${EXTRA_AUDITOR_ARGS[@]}")
     fi
 
+    local inspec_args=(
+        --no-create-lockfile
+        --reporter cli
+        --reporter "json:/results/${inspec_json_basename}"
+        --input "rootfs=${rootfs_path}"
+    )
+
+    if [ "${#EXTRA_INSPEC_ARGS[@]}" -gt 0 ]; then
+        inspec_args+=("${EXTRA_INSPEC_ARGS[@]}")
+    fi
+
     docker run "${auditor_args[@]}" \
         "${CINC_AUDITOR_IMAGE}" \
         exec "${PROFILE_PATH}" \
-          --no-create-lockfile \
-          --reporter cli \
-          --reporter "json:/results/${inspec_json_basename}" \
-          --input "rootfs=${rootfs_path}"
+          "${inspec_args[@]}"
     INSPEC_EXIT_CODE=$?
     set -e
 }

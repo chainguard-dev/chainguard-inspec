@@ -76,3 +76,13 @@ inputs:
     description: Skip exercising the checks for FIPS-approved crytpography
     type: Boolean
     value: false
+  - name: allow_host_aslr_fallback
+    description: >
+      Allow AslrCheck to fall back to reading /proc/sys/kernel/randomize_va_space
+      directly from the host when neither the rootfs-relative sysctl path nor the
+      runtime capture file is present.  Enable for overlay scans where /proc is not
+      mounted inside the merged filesystem and the capture file cannot be injected.
+      Disabled by default so that synthetic test environments on a live host do not
+      inadvertently satisfy the check via the host kernel.
+    type: Boolean
+    value: false
