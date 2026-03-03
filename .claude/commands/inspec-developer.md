@@ -160,10 +160,10 @@ the report.
 
 ## APK package database
 
-Controls that check installed packages read `/lib/apk/db/installed`:
+Controls that check installed packages read `/usr/lib/apk/db/installed`:
 
 ```ruby
-installed_db_path = File.join(rootfs, 'lib/apk/db/installed')
+installed_db_path = File.join(rootfs, 'usr/lib/apk/db/installed')
 installed_db = file(installed_db_path)
 ```
 

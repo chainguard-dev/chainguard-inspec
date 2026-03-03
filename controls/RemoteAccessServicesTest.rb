@@ -132,7 +132,7 @@ control 'oval:org.RemoteAccessServices:def:1' do
   ]
 
   rootfs = ENV['ROOTFS_DIR'] || input('rootfs')
-  installed_db_path = File.join(rootfs, 'lib/apk/db/installed')
+  installed_db_path = File.join(rootfs, 'usr/lib/apk/db/installed')
   installed_db = file(installed_db_path)
 
   describe installed_db do
