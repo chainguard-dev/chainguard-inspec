@@ -1,0 +1,37 @@
+name: Control Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - 'controls/**'
+      - 'test/**'
+      - 'inspec.yml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    # Non-root runner with passwordless sudo and Docker available.
+    # A container: job is intentionally avoided — it would prevent Docker-in-Docker
+    # access needed for cinc-auditor when using the Docker execution mode.
+    env:
+      # If and when we make the cinc-auditor image public, convert to it.
+      # CINC_AUDITOR_IMAGE: cgr.dev/chainguard/cinc-auditor
+      CINC_AUDITOR_IMAGE: cincproject/auditor:latest
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@df199fb7be9f65074067a9eb93f12bb4c5547cf2 # v2.13.3
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - uses: ruby/setup-ruby@19a43a6a2428d455dbd1b85344698725179c9d8c # v1.289.0
+        with:
+          working-directory: test
+          bundler-cache: true
+
+      - name: Run control tests
+        working-directory: test
+        run: bundle exec rspec
