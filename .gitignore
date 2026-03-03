@@ -1,3 +1,6 @@
+# Test suite bundler artifacts
+test/vendor/
+
 # InSpec Results
 results/*
 !results/.gitkeep
