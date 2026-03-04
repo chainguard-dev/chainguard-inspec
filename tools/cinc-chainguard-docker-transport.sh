@@ -170,9 +170,13 @@ echo "Busybox extracted to ${BUSYBOX_TMPDIR}/busybox"
 echo "Starting target container with busybox utilities..."
 CONTAINER_ID="$(docker run -d \
     -v "${BUSYBOX_TMPDIR}/busybox:/bin/sh" \
+    -v "${BUSYBOX_TMPDIR}/busybox:/usr/bin/base64" \
     -v "${BUSYBOX_TMPDIR}/busybox:/usr/bin/cat" \
+    -v "${BUSYBOX_TMPDIR}/busybox:/usr/bin/echo" \
+    -v "${BUSYBOX_TMPDIR}/busybox:/usr/bin/readlink" \
     -v "${BUSYBOX_TMPDIR}/busybox:/usr/bin/sleep" \
     -v "${BUSYBOX_TMPDIR}/busybox:/usr/bin/stat" \
+    -v "${BUSYBOX_TMPDIR}/busybox:/usr/bin/test" \
     -v "${BUSYBOX_TMPDIR}/busybox:/usr/bin/uname" \
     --entrypoint /bin/sh \
     "${IMAGE}" -c 'trap exit TERM INT; /usr/bin/sleep infinity & wait $!')"
