@@ -7,23 +7,19 @@ This repository provides an InSpec profile to evaluate Chainguard container imag
 ## Components
 
 - **Profile** `controls/` contains the control implementations along with the `inspec.yml` metadata file, and the `stig_mappings.rb` helper.
+- **Scan scripts** `tools/` provides four wrapper scripts that invoke the Chainguard cinc-auditor image to run the profile and generate HTML reports; see [Scan Scripts](#scan-scripts) for details.
 - **Report generator** `tools/generate_stig_html.rb` converts the JSON reporter output into a standalone HTML report.
-
-XXX - drop some of below but also recreate wrapper scripts that work with the public chainguard cinc-auditor image
-
-- **Dockerfile** builds the Wolfi-based Cinc Auditor image, embedding the STIG profile, benchmarks, HTML report generator, required glibc libraries, the `libcrypt.so.2` compatibility link, a cached Chef UUID, and the `/usr/local/bin/read-aslr` helper.
-- **Scan script** `cinc-chainguard.sh` pulls images when they are not cached locally, exports the filesystem, captures host kernel information using the auditor image, invokes the profile inside Cinc Auditor and automatically generates HTML reports using the embedded report generator.
+- **Common library** `tools/lib/cinc-common.sh` contains shared functions sourced by all scan scripts.
 
 ## Requirements
 
-- **cinc-auditor** or **inspec** available to run [XXX - link to public image when ready]; see Caveats section if using a binary distribution of cinc-auditor.
+- **Docker** with permission to run the Chainguard cinc-auditor image and to pull target container images.
+- **cinc-auditor image** (`cgr.dev/chainguard-private/cinc-auditor:latest`) pulled and accessible; override with the `CINC_AUDITOR_IMAGE` environment variable.
 
 ## Optional
 
 - **Benchmark data** `ssg-chainguard-gpos-ds.xml` from https://github.com/chainguard-dev/stigs/ supplies rule titles, descriptions, severities, and CCIs referenced in generated html reports.
-- **Docker** with permission to build the auditor helper image and to pull target container images.
-- **Ruby 2.7+** (only required when running the developer workflow that generates HTML on the host).
-- **Linux host** recommended for tmpfs extraction; macOS and Windows are supported using on-disk extraction.
+- **Ruby 2.7+** only required when using `--use-local-profile` (developer mode) to generate HTML reports on the host rather than inside the cinc-auditor container.
 
 ## Controls and Coverage
 
@@ -31,7 +27,7 @@ XXX - drop some of below but also recreate wrapper scripts that work with the pu
 | ------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | `AslrCheck.rb`                  | Validates that `kernel.randomize_va_space` equals `2` when the capture succeeds.                                  |
 | `DetectOpenSslTest.rb`          | Confirms presence of FIPS OpenSSL configuration files and required packages, and prints their contents.           |
-| `LibraryPermissionsTest.rb`     | Checks `/usr/lib` ownership and mode for compliance with root-only access.                                        |
+| `LibraryPermissionsTest.rb`     | Checks `/usr/lib` ownership and mode for compliance with root-only ownership.                                     |
 | `NoUsersCheck.rb`               | Enumerates `/etc/passwd` entries to ensure only approved service accounts follow `nobody`.                        |
 | `PackageSignatureTest.rb`       | Ensures every repository entry in `/etc/apk/repositories` uses HTTPS and documents file contents.                 |
 | `RemoteAccessServicesTest.rb`   | Verifies that banned remote access packages are absent from the APK installed database.                           |
@@ -41,6 +37,59 @@ XXX - drop some of below but also recreate wrapper scripts that work with the pu
 
 STIG rule identifiers, severities, and CCIs are defined through `tag` metadata within each control and are surfaced in the HTML report alongside test evidence.
 
+## Scan Scripts
+
+All scripts accept `<image> [label] [results-dir]` as positional arguments and write JSON and HTML results to the results directory (default: `./results`). Each script sources `tools/lib/cinc-common.sh` for shared functionality. Pass `--use-local-profile` to bind-mount the local profile directory instead of using the embedded profile in the cinc-auditor image (developer mode).
+
+| Script                                | Approach                  | Platform           |
+| ------------------------------------- | ------------------------- | ------------------ |
+| `cinc-chainguard.sh`                  | Filesystem reconstruction | Linux, macOS       |
+| `cinc-chainguard-live.sh`             | Live container via procfs | Linux, macOS       |
+| `cinc-chainguard-overlay.sh`          | Live overlay2 filesystem  | Linux only         |
+| `cinc-chainguard-docker-transport.sh` | Docker transport backend  | Linux, macOS, Windows |
+
+### `cinc-chainguard.sh` — Filesystem reconstruction
+
+Exports the container image filesystem via `docker export`, extracts it to a tmpfs directory (or on-disk with `--no-tmpfs`), captures the host ASLR setting, and runs cinc-auditor against the extracted rootfs. Suitable for all images including distroless and short-lived containers.
+
+```bash
+./tools/cinc-chainguard.sh cgr.dev/chainguard/nginx:latest dev
+./tools/cinc-chainguard.sh --no-tmpfs cgr.dev/chainguard/nginx:latest dev
+```
+
+### `cinc-chainguard-live.sh` — Live container
+
+Starts the container's actual workload, then runs cinc-auditor using `--pid=host` to access the filesystem via `/proc/<PID>/root`. ASLR is read from the target container's mounted `/proc` without any capture or injection step. All filesystem access happens inside the cinc-auditor container, so no host-side overlay2 path is required.
+
+Do not use with images that have undesirable side-effects when run; use `cinc-chainguard.sh` for those instead.
+
+```bash
+./tools/cinc-chainguard-live.sh cgr.dev/chainguard/nginx:latest dev
+```
+
+### `cinc-chainguard-overlay.sh` — Live overlay filesystem
+
+Reads the container's overlay2 merged directory directly via `docker inspect GraphDriver.Data.MergedDir`, avoiding full filesystem extraction. Faster than export/tar for large images. Requires a Linux host with Docker using the overlay2 storage driver and root or equivalent privileges to read paths under `/var/lib/docker/overlay2/`. Does not work with Docker Desktop on macOS or Windows.
+
+```bash
+./tools/cinc-chainguard-overlay.sh cgr.dev/chainguard/nginx:latest dev
+```
+
+### `cinc-chainguard-docker-transport.sh` — Docker transport
+
+Extracts a statically-linked busybox binary from a helper image (default: `busybox:musl`), starts the target container with busybox bind-mounted at the paths cinc-auditor requires, and connects via the `docker://` transport backend. Works on Linux, macOS, and Windows (Docker Desktop). Useful when the target image lacks basic utilities.
+
+```bash
+./tools/cinc-chainguard-docker-transport.sh cgr.dev/chainguard/crane:latest dev
+```
+
+Override the busybox source via environment variables:
+
+```bash
+BUSYBOX_SOURCE_IMAGE=busybox:musl BUSYBOX_BINARY_PATH=/bin/busybox \
+  ./tools/cinc-chainguard-docker-transport.sh cgr.dev/chainguard/crane:latest dev
+```
+
 ## Caveats
 
 ### Possible differences between the XCCDF and InSpec profile.
@@ -48,90 +97,31 @@ STIG rule identifiers, severities, and CCIs are defined through `tag` metadata w
 This profile is intended to be comparable to the Chainguard XCCDF GPOS profile; however, there are some subtle differences in evaluation that may cause differences in results. In particular:
 
 - `NoUsersCheck.rb` examines both `/etc/passwd` and `/etc/shadow` for unexpected users, whereas the XCCDF profile just looks at `/etc/shadow`. The InSpec profile also will consider users added by apko as part of the image build process as intended added users, while the XCCDF is not currently capable of doing so.
-- DetectOpenSslTest.rb` is able to look for correct openssl.cnf ini configurations, whereas the XCCDF profile does simple pattern matching.
+- `DetectOpenSslTest.rb` is able to look for correct openssl.cnf ini configurations, whereas the XCCDF profile does simple pattern matching.
 
 ### Using binary distributions of InSpec / cinc-auditor
 
-When performing runtime scanning of containers using a remote backend (e.g. `docker://`, `k8s-container://`), cinc-auditor did not correctly detect Chainguard images and so examinations of file system objects would fail. This was fixed in the upstream inspec-train ruby gem in https://github.com/inspec/train/pull/812 and was released in [v3.14.1](https://rubygems.org/gems/train/versions/3.14.1); however, the most recent binary release of cinc-auditor [7.0.95](http://downloads.cinc.sh/files/stable/cinc-auditor/) has not been rebuilt with the fixed version of the train gem, and so will break. Building and deploying cinc-auditor from source (or using the publicly available Chaingaurd cinc-auditor image) will incorporate the necessary fix.
-
-### Runtime image scanning issues
-
-InSpec as a tool and this profile are intended to be run against live containers. However, Chainguard container images are intended to be minimal, and thus a significant percentage of images do not include low level utilities needed for cinc-auditor to correctly perform its scans.
-
-There are a few different ways to compensate for this.
-
-#### Perform the evaluation on a `-dev` variant of the image
-
-This should include enough utilities to permit cinc-auditor to evaluate the image with this profile.
-
-#### Bind mount statically linked utilities into the image
-
-If the system that is performing the evaluation has statically linked busybox installed (e.g. `apt install busybox` on Debian/Ubuntu), it can be bind mounted into the container image to provide the needed utilies for cinc-auditor to perform its scan. Specifically, the profile and cinc-auditor need a working `/bin/sh`, `/usr/bin/uname`, and `/usr/bin/stat`.
-
-An example under docker:
-
-```
-$ docker run -it --rm --name target \
-     -v /usr/bin/busybox:/bin/sh \
-     -v /usr/bin/busybox:/usr/bin/uname \
-     -v /usr/bin/busybox:/usr/bin/stat \
-     --entrypoint /bin/sh \
-     cgr.dev/chainguard/crane:latest
-
-# [in another shell]
-$ cinc-auditor exec . -t docker://target \
-     --user root  --reporter json:results/output.json --no-create-lockfile
-```
-
-#### Perform the scan against the merged filesystem
-
-The Chainguard InSpec profile supports setting an alternate top root directory for local scans, using the `--input rootfs=/rootfs` argument to cinc-auditor.
-
-Example using docker:
-
-```
-$ docker run -it --rm --name target \
-     --entrypoint jshell \
-     cgr.dev/chainguard/jdk:latest
-
-
-# in another shell
-$ MERGED=$(docker inspect target --format '{{.GraphDriver.Data.MergedDir}}')
-$ cinc-auditor exec .  \
-     --no-create-lockfile \
-     --reporter json:results/output.json \
-     --input "rootfs=$MERGED"
-```
-
-#### Export the image filesystem for evaluation
-
-[this is what cinc-chainguard.sh did]
-
-### Keeping an image alive to be evaluated
-
-Some images to be examined may not have a long-running process or are quite involved to set up, but may not have basic utilities that can be used as the entrypoint to keep the container from exiting while cinc-auditor performs its scan.
-
-To compensate for this a tool like [`anchore-keep-alive`](https://github.com/anchore/anchore-keep-alive) can be used; build it locally, and bind mount it into the container and use it for the entrypoint.
-
-An example with docker:
-
-```
-$ docker run -it --rm --name target \
-     -v /PATH/TO/anchore-keep-alive:/anchore-keep-alive \
-     --entrypoint /anchore-keep-alive \
-     cgr.dev/chainguard/crane:latest
-
-$ cinc-auditor exec . -t docker://target \
-     --user root  --reporter json:results/output.json --no-create-lockfile
-```
+When performing runtime scanning of containers using a remote backend (e.g. `docker://`, `k8s-container://`), cinc-auditor did not correctly detect Chainguard images and so examinations of file system objects would fail. This was fixed in the upstream inspec-train ruby gem in https://github.com/inspec/train/pull/812 and was released in [v3.14.1](https://rubygems.org/gems/train/versions/3.14.1); however, the most recent binary release of cinc-auditor [7.0.95](http://downloads.cinc.sh/files/stable/cinc-auditor/) has not been rebuilt with the fixed version of the train gem, and so will break. Building and deploying cinc-auditor from source (or using the Chainguard cinc-auditor image) will incorporate the necessary fix.
 
 ### ASLR capture
 
-The `AslrCheck.rb` control attempts to read an attribute about the kernel that is running underneath the container under examination, specifically via the ProcFS file system interface. If that's not available, the ASLR control will skip, unless the value is captured and injected into the image at `/.runtime_capture/aslr_setting`.
+The `AslrCheck.rb` control attempts to read the kernel ASLR setting from the filesystem being scanned:
+
+1. `${rootfs}/proc/sys/kernel/randomize_va_space` — available when the container has `/proc` mounted (e.g. live scans via `cinc-chainguard-live.sh`).
+2. `${rootfs}/.runtime_capture/aslr_setting` — a file injected at scan time by `cinc-chainguard.sh` after capturing the value from the host kernel.
+3. `/proc/sys/kernel/randomize_va_space` directly on the host — available when the `allow_host_aslr_fallback` input is `true` (set automatically by `cinc-chainguard-overlay.sh`).
+
+If none of these sources is available the control skips.
 
 ### APK-focused checks
 
-As the profile is intended for use on Chainguard (aka Wolfi) images, the assumption for validating whether specific packages are or are not installed in the environment assume the presence of the APK package database in `/lib/apk/db/installed`; non-APK based images will fail these controls. (This is also true for the XCCDF profile the Inspec profile is derived from.)
+As the profile is intended for use on Chainguard (aka Wolfi) images, the assumption for validating whether specific packages are or are not installed in the environment assumes the presence of the APK package database at `/usr/lib/apk/db/installed`; non-APK based images will fail these controls. (This is also true for the XCCDF profile the InSpec profile is derived from.)
+
+### Keeping an image alive to be evaluated
+
+Some images to be examined may not have a long-running process or are quite involved to set up. The `cinc-chainguard-docker-transport.sh` script handles this automatically by starting the container with `busybox sleep infinity` as the entrypoint.
+
+For manual `docker://` transport scans without the wrapper script, a tool like [`anchore-keep-alive`](https://github.com/anchore/anchore-keep-alive) can be used; build it locally, and bind mount it into the container as the entrypoint.
 
 ## Project Layout
 
@@ -142,7 +132,12 @@ chainguard-inspec/
 ├── libraries/stig_mappings.rb
 ├── tools/
 │   ├── cinc-chainguard.sh
-│   └── generate_stig_html.rb
+│   ├── cinc-chainguard-live.sh
+│   ├── cinc-chainguard-overlay.sh
+│   ├── cinc-chainguard-docker-transport.sh
+│   ├── generate_stig_html.rb
+│   └── lib/
+│       └── cinc-common.sh
 ├── results/
 └── README.md
 ```
@@ -152,13 +147,19 @@ chainguard-inspec/
 - **Control updates**:
   - modify files under `controls/` and adjust `libraries/stig_mappings.rb` when STIG metadata changes.
   - update `inspec.yml` to customize input parameters.
-- **Profile Validation**: run `cinc-auditor check /share/` to validate the profile.
+- **Profile Validation**: run `cinc-auditor check` to validate the profile:
 
 ```bash
 docker run --rm \
   -v "$(pwd):/share" \
-  local/chainguard-cinc-auditor:latest \
+  cgr.dev/chainguard-private/cinc-auditor:latest \
   check /share/
+```
+
+- **Local profile testing**: use `--use-local-profile` with any scan script to bind-mount the local profile and generate reports with host Ruby instead of the embedded copy:
+
+```bash
+./tools/cinc-chainguard.sh --use-local-profile cgr.dev/chainguard/nginx:latest dev
 ```
 
 - **Testing**: re-run scans after modifications and review the resulting HTML evidence for regressions.
