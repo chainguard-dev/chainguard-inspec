@@ -13,25 +13,24 @@ RSpec.describe 'oval:org.varlog:def:2' do
 
   context 'when /var/log is owned root:root with mode 0755' do
     it 'passes' do
-      skip 'requires root or passwordless sudo' unless chown_root(var_log_path)
       FileUtils.chmod(0o755, var_log_path)
+      skip 'requires root or passwordless sudo' unless chown_root(var_log_path)
       expect(run_control('oval:org.varlog:def:2', rootfs: rootfs)).to be_passing
     end
   end
 
-  context 'when /var/log is owned by the current non-root user' do
+  context 'when /var/log is owned by a non-root user' do
     it 'fails' do
-      skip 'only meaningful when not running as root' if Process.uid == 0
-      # After mkdir_p the directory is already owned by the current (non-root) user
       FileUtils.chmod(0o755, var_log_path)
+      make_non_root_owned(var_log_path)
       expect(run_control('oval:org.varlog:def:2', rootfs: rootfs)).to be_failing
     end
   end
 
   context 'when /var/log is owned root:root but has mode 0777' do
     it 'fails' do
-      skip 'requires root or passwordless sudo' unless chown_root(var_log_path)
       FileUtils.chmod(0o777, var_log_path)
+      skip 'requires root or passwordless sudo' unless chown_root(var_log_path)
       expect(run_control('oval:org.varlog:def:2', rootfs: rootfs)).to be_failing
     end
   end
