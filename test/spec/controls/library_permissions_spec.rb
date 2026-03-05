@@ -17,18 +17,6 @@ RSpec.describe 'oval:org.LibraryPermissions:def:2' do
   before { FileUtils.mkdir_p(usr_lib_path) }
   after { cleanup_with_root_files(rootfs) }
 
-  # Chown a file to a non-root UID so ownership tests can detect it as non-compliant.
-  # When running as non-root, the freshly created file is already non-root-owned.
-  # When running as root, chown to nobody (65534) which always exists.
-  def make_non_root_owned(path)
-    if Process.uid != 0
-      true # already owned by the non-root current user
-    else
-      File.chown(65534, 65534, path)
-      true
-    end
-  end
-
   context 'when all files in /usr/lib are owned root:root' do
     before do
       File.write(libfoo_path, "ELF stub\n")

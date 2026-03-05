@@ -19,11 +19,10 @@ RSpec.describe 'oval:org.varlog:def:2' do
     end
   end
 
-  context 'when /var/log is owned by the current non-root user' do
+  context 'when /var/log is owned by a non-root user' do
     it 'fails' do
-      skip 'only meaningful when not running as root' if Process.uid == 0
-      # After mkdir_p the directory is already owned by the current (non-root) user
       FileUtils.chmod(0o755, var_log_path)
+      make_non_root_owned(var_log_path)
       expect(run_control('oval:org.varlog:def:2', rootfs: rootfs)).to be_failing
     end
   end
