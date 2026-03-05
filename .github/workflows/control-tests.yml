@@ -31,6 +31,7 @@ jobs:
         with:
           working-directory: test
           bundler-cache: true
+          ruby-version: '3.4' # Not needed with a .ruby-version, .tool-versions or mise.toml
 
       - name: Run control tests
         working-directory: test
