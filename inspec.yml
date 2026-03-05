@@ -18,7 +18,7 @@ maintainer: steve.beattie@chainguard.dev
 copyright: Copyright (c) 2025 Chainguard
 license: Apache-2.0
 summary: DISA STIG compliance validation for Chainguard container images
-version: 0.0.1
+version: 0.0.3
 supports:
   - platform: linux
 
