@@ -9,12 +9,17 @@ on:
       - 'test/**'
       - 'inspec.yml'
 
+permissions: {}
+
 jobs:
   test:
+    if: ${{ github.repository == 'chainguard-dev/chainguard-inspec' }}
     runs-on: ubuntu-latest
     # Non-root runner with passwordless sudo and Docker available.
     # A container: job is intentionally avoided — it would prevent Docker-in-Docker
     # access needed for cinc-auditor when using the Docker execution mode.
+    permissions:
+      contents: read
     env:
       # If and when we make the cinc-auditor image public, convert to it.
       # CINC_AUDITOR_IMAGE: cgr.dev/chainguard/cinc-auditor
