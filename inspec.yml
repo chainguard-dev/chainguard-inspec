@@ -18,7 +18,7 @@ maintainer: steve.beattie@chainguard.dev
 copyright: Copyright (c) 2025 Chainguard
 license: Apache-2.0
 summary: DISA STIG compliance validation for Chainguard container images
-version: 0.0.3
+version: 0.0.4
 supports:
   - platform: linux
 
@@ -27,7 +27,7 @@ inputs:
     description: Expected SHA-256 hash of CA bundle
     type: string
     required: true
-    value: 766392c21c0baf5fa722cb309dc576b89d9fb3323dd32aa45a939dd575db6d1c
+    value: 61efbd6d3f829f71039c57b29dd37d15ac7f33c4ece861aaef8c7d7a519cd1d9
   - name: rootfs
     description: Path to extracted container root filesystem
     type: string
