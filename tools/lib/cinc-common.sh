@@ -100,9 +100,9 @@ cinc_parse_positional_args() {
 cinc_setup_profile_paths() {
     PROFILE_DIR="${SCRIPT_DIR}/.."
     REPORT_SCRIPT_HOST="${SCRIPT_DIR}/generate_stig_html.rb"
-    REPORT_SCRIPT_CONTAINER="/opt/chainguard-stig/tools/generate_stig_html.rb"
+    REPORT_SCRIPT_CONTAINER="/usr/share/chainguard-inspec/tools/generate_stig_html.rb"
     if $USE_EMBEDDED_PROFILE; then
-        PROFILE_PATH="/opt/chainguard-stig/"
+        PROFILE_PATH="/usr/share/chainguard-inspec/"
         PROFILE_SOURCE="embedded"
     else
         PROFILE_PATH="/profile"
@@ -280,9 +280,10 @@ cinc_generate_html_report() {
         docker run --rm \
             --platform linux/amd64 \
             -v "${RESULTS_DIR}:/results:rw" \
+            --user 0:0 \
             -e LANG=en_US.UTF-8 \
             -e LC_ALL=en_US.UTF-8 \
-            --entrypoint /opt/cinc-auditor/embedded/bin/ruby \
+            --entrypoint /usr/bin/ruby \
             "${CINC_AUDITOR_IMAGE}" \
             "${REPORT_SCRIPT_CONTAINER}" \
             "/results/$(basename "${OUTPUT_JSON}")" \
