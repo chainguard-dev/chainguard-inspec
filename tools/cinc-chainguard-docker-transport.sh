@@ -42,8 +42,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/cinc-common.sh
 source "${SCRIPT_DIR}/lib/cinc-common.sh"
 
-BUSYBOX_SOURCE_IMAGE="${BUSYBOX_SOURCE_IMAGE:-busybox:musl}"
-BUSYBOX_BINARY_PATH="${BUSYBOX_BINARY_PATH:-/bin/busybox}"
+BUSYBOX_SOURCE_IMAGE="${BUSYBOX_SOURCE_IMAGE:-cgr.dev/chainguard/busybox-static:latest}"
+BUSYBOX_BINARY_PATH="${BUSYBOX_BINARY_PATH:-/usr/bin/busybox}"
 
 CONTAINER_ID=""
 BUSYBOX_TMPDIR=""
