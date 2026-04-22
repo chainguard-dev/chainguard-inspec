@@ -39,9 +39,17 @@ control 'oval:org.LibraryPermissions:def:2' do
     it { should exist }
   end
 
+  find_cmd = ::FindHelper.find_command(self)
+
+  describe 'find utility availability' do
+    it 'must be resolvable (real find or busybox with find applet)' do
+      expect(find_cmd).not_to be_nil
+    end
+  end
+
   entries =
-    if lib_dir.exist?
-      command("find #{lib_path} -type f -print0").stdout.split("\0").sort
+    if lib_dir.exist? && find_cmd
+      command("#{find_cmd} #{lib_path} -type f -print0").stdout.split("\0").sort
     else
       []
     end
