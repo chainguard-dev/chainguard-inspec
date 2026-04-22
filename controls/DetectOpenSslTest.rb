@@ -49,18 +49,26 @@ control 'oval:org.OpenSsl:def:1' do
     it { should exist }
   end
 
+  find_cmd = ::FindHelper.find_command(self)
+
+  describe 'find utility availability' do
+    it 'must be resolvable (real find or busybox with find applet)' do
+      expect(find_cmd).not_to be_nil
+    end
+  end
+
   # Find FIPS module files
   fips_module_files =
-    if ssl_dir_resource.exist?
-      command("find #{ssl_dir} -type f -a -name '*fipsmodule*' -print0").stdout.split("\0").sort
+    if ssl_dir_resource.exist? && find_cmd
+      command("#{find_cmd} #{ssl_dir} -type f -a -name '*fipsmodule*' -print0").stdout.split("\0").sort
     else
       []
     end
 
   # Find OpenSSL config files
   openssl_conf_files =
-    if ssl_dir_resource.exist?
-      command("find #{ssl_dir} -type f -a -name '*openssl*' -print0").stdout.split("\0").sort
+    if ssl_dir_resource.exist? && find_cmd
+      command("#{find_cmd} #{ssl_dir} -type f -a -name '*openssl*' -print0").stdout.split("\0").sort
     else
       []
     end
