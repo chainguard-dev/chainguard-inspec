@@ -6,20 +6,32 @@ This repository provides an InSpec profile to evaluate Chainguard container imag
 
 ## Components
 
-- **Profile** `controls/` contains the control implementations along with the `inspec.yml` metadata file, and the `stig_mappings.rb` helper.
-- **Scan scripts** `tools/` provides four wrapper scripts that invoke the Chainguard cinc-auditor image to run the profile and generate HTML reports; see [Scan Scripts](#scan-scripts) for details.
-- **Report generator** `tools/generate_stig_html.rb` converts the JSON reporter output into a standalone HTML report.
-- **Common library** `tools/lib/cinc-common.sh` contains shared functions sourced by all scan scripts.
+- **Profile:** `controls/` contains the control implementations along with the `inspec.yml` metadata file, and the `stig_mappings.rb` helper.
+- **Scan scripts:** `tools/` provides four wrapper scripts that invoke the Chainguard cinc-auditor image to run the profile and generate HTML reports; see [Scan Scripts](#scan-scripts) for details.
+- **Report generator:** `tools/generate_stig_html.rb` converts the JSON reporter output into a standalone HTML report.
+- **Common library:** `tools/lib/cinc-common.sh` contains shared functions sourced by all scan scripts.
 
 ## Requirements
 
 - **Docker** with permission to run the Chainguard cinc-auditor image and to pull target container images.
-- **cinc-auditor image** (`cgr.dev/chainguard-private/cinc-auditor:latest`) pulled and accessible; override with the `CINC_AUDITOR_IMAGE` environment variable.
+- **cinc-auditor image** (`cgr.dev/chainguard-private/cinc-auditor:latest`) pulled and accessible; override with the `CINC_AUDITOR_IMAGE` environment variable. This image is hosted in Chainguard's private registry and requires authenticated access to pull.
 
 ## Optional
 
-- **Benchmark data** `ssg-chainguard-gpos-ds.xml` from https://github.com/chainguard-dev/stigs/ supplies rule titles, descriptions, severities, and CCIs referenced in generated html reports.
+- **Benchmark data** `ssg-chainguard-gpos-ds.xml` from https://github.com/chainguard-dev/stigs/ supplies rule titles, descriptions, severities, and CCIs referenced in generated HTML reports.
 - **Ruby 2.7+** only required when using `--use-local-profile` (developer mode) to generate HTML reports on the host rather than inside the cinc-auditor container.
+
+## Quick Start
+
+Once requirements are in place, scan any Chainguard container image with the default script:
+
+```bash
+./tools/cinc-chainguard.sh cgr.dev/chainguard/nginx:latest
+```
+
+Results are written to `./results/` as both JSON and a standalone HTML report. Open the HTML report in a browser to view each test result alongside its STIG rule description, severity, and evidence.
+
+`cinc-chainguard.sh` exports and scans the filesystem without running the container's workload, making it a safe default for any image. See [Scan Scripts](#scan-scripts) for other approaches and their tradeoffs.
 
 ## Controls and Coverage
 
@@ -61,7 +73,7 @@ Exports the container image filesystem via `docker export`, extracts it to a tmp
 
 Starts the container's actual workload, then runs cinc-auditor using `--pid=host` to access the filesystem via `/proc/<PID>/root`. ASLR is read from the target container's mounted `/proc` without any capture or injection step. All filesystem access happens inside the cinc-auditor container, so no host-side overlay2 path is required.
 
-Do not use with images that have undesirable side-effects when run; use `cinc-chainguard.sh` for those instead.
+> **Warning:** Do not use with images that have undesirable side-effects when run; use `cinc-chainguard.sh` for those instead.
 
 ```bash
 ./tools/cinc-chainguard-live.sh cgr.dev/chainguard/nginx:latest dev
@@ -92,7 +104,7 @@ BUSYBOX_SOURCE_IMAGE=busybox:musl BUSYBOX_BINARY_PATH=/bin/busybox \
 
 ## Caveats
 
-### Possible differences between the XCCDF and InSpec profile.
+### Possible differences between the XCCDF and InSpec profile
 
 This profile is intended to be comparable to the Chainguard XCCDF GPOS profile; however, there are some subtle differences in evaluation that may cause differences in results. In particular:
 
@@ -101,7 +113,7 @@ This profile is intended to be comparable to the Chainguard XCCDF GPOS profile; 
 
 ### Using binary distributions of InSpec / cinc-auditor
 
-When performing runtime scanning of containers using a remote backend (e.g. `docker://`, `k8s-container://`), cinc-auditor did not correctly detect Chainguard images and so examinations of file system objects would fail. This was fixed in the upstream inspec-train ruby gem in https://github.com/inspec/train/pull/812 and was released in [v3.14.1](https://rubygems.org/gems/train/versions/3.14.1); however, the most recent binary release of cinc-auditor [7.0.95](http://downloads.cinc.sh/files/stable/cinc-auditor/) has not been rebuilt with the fixed version of the train gem, and so will break. Building and deploying cinc-auditor from source (or using the Chainguard cinc-auditor image) will incorporate the necessary fix.
+**Use the Chainguard cinc-auditor image to avoid this issue.** When performing runtime scanning of containers using a remote backend (e.g. `docker://`, `k8s-container://`), cinc-auditor did not correctly detect Chainguard images, causing filesystem object examinations to fail. This was fixed in the upstream inspec-train ruby gem in https://github.com/inspec/train/pull/812 and released in [v3.14.1](https://rubygems.org/gems/train/versions/3.14.1); however, the most recent binary release of cinc-auditor [7.0.95](http://downloads.cinc.sh/files/stable/cinc-auditor/) has not been rebuilt with the fixed version of the train gem and will break. The Chainguard cinc-auditor image and source-built versions incorporate the necessary fix.
 
 ### ASLR capture
 
@@ -115,7 +127,7 @@ If none of these sources is available the control skips.
 
 ### APK-focused checks
 
-As the profile is intended for use on Chainguard (aka Wolfi) images, the assumption for validating whether specific packages are or are not installed in the environment assumes the presence of the APK package database at `/usr/lib/apk/db/installed`; non-APK based images will fail these controls. (This is also true for the XCCDF profile the InSpec profile is derived from.)
+This profile targets Chainguard (Wolfi-based) images and requires the APK package database at `/usr/lib/apk/db/installed`. Non-APK-based images will fail these controls. The same limitation applies to the XCCDF profile this one is derived from.
 
 ### Keeping an image alive to be evaluated
 
@@ -144,10 +156,8 @@ chainguard-inspec/
 
 ## Development Guidelines
 
-- **Control updates**:
-  - modify files under `controls/` and adjust `libraries/stig_mappings.rb` when STIG metadata changes.
-  - update `inspec.yml` to customize input parameters.
-- **Profile Validation**: run `cinc-auditor check` to validate the profile:
+- **Control updates:** modify files under `controls/` and adjust `libraries/stig_mappings.rb` when STIG metadata changes; update `inspec.yml` to customize input parameters.
+- **Profile validation:** run `cinc-auditor check` to validate the profile:
 
 ```bash
 docker run --rm \
@@ -156,13 +166,13 @@ docker run --rm \
   check /share/
 ```
 
-- **Local profile testing**: use `--use-local-profile` with any scan script to bind-mount the local profile and generate reports with host Ruby instead of the embedded copy:
+- **Local profile testing:** use `--use-local-profile` with any scan script to bind-mount the local profile and generate reports with host Ruby instead of the embedded copy:
 
 ```bash
 ./tools/cinc-chainguard.sh --use-local-profile cgr.dev/chainguard/nginx:latest dev
 ```
 
-- **Testing**: re-run scans after modifications and review the resulting HTML evidence for regressions.
+- **Testing:** re-run scans after modifications and review the resulting HTML evidence for regressions.
 
 ### Pre-commit hooks
 
@@ -182,9 +192,6 @@ The hooks enforce:
 
 The `shellcheck` hook uses the **system-installed** `shellcheck` binary rather than
 a bundled version fetched from the internet.
-
-> **Note**: This section will likely be split into a dedicated contributing/development
-> document as the project grows.
 
 ## License
 
