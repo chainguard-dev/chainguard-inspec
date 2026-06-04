@@ -141,7 +141,9 @@ For manual `docker://` transport scans without the wrapper script, a tool like [
 chainguard-inspec/
 ├── controls/
 ├── inspec.yml
-├── libraries/stig_mappings.rb
+├── libraries/
+│   ├── find_helper.rb
+│   └── stig_mappings.rb
 ├── tools/
 │   ├── cinc-chainguard.sh
 │   ├── cinc-chainguard-live.sh
@@ -150,48 +152,20 @@ chainguard-inspec/
 │   ├── generate_stig_html.rb
 │   └── lib/
 │       └── cinc-common.sh
+├── test/                  # rspec control test suite (see docs/testing.md)
+├── docs/                  # contributor documentation
 ├── results/
 └── README.md
 ```
 
-## Development Guidelines
+## Contributing
 
-- **Control updates:** modify files under `controls/` and adjust `libraries/stig_mappings.rb` when STIG metadata changes; update `inspec.yml` to customize input parameters.
-- **Profile validation:** run `cinc-auditor check` to validate the profile:
+Developer documentation — control authoring guidelines, the rspec unit-test
+suite, pre-commit hooks, and lint/style workflow — lives under [`docs/`](docs/):
 
-```bash
-docker run --rm \
-  -v "$(pwd):/share" \
-  cgr.dev/chainguard-private/cinc-auditor:latest \
-  check /share/
-```
-
-- **Local profile testing:** use `--use-local-profile` with any scan script to bind-mount the local profile and generate reports with host Ruby instead of the embedded copy:
-
-```bash
-./tools/cinc-chainguard.sh --use-local-profile cgr.dev/chainguard/nginx:latest dev
-```
-
-- **Testing:** re-run scans after modifications and review the resulting HTML evidence for regressions.
-
-### Pre-commit hooks
-
-A [pre-commit](https://pre-commit.com/) configuration is provided for local development.
-Ensure `pre-commit` and `shellcheck` are available on your system (both are available
-via your system package manager, or `pre-commit` can be installed via `uv` or `pip`),
-then enable the hooks with:
-
-```bash
-pre-commit install
-```
-
-The hooks enforce:
-- Trailing whitespace removal, end-of-file newlines, and LF line endings
-- YAML validity and merge conflict marker detection
-- `shellcheck` linting of all shell scripts under `tools/`
-
-The `shellcheck` hook uses the **system-installed** `shellcheck` binary rather than
-a bundled version fetched from the internet.
+- [`docs/development.md`](docs/development.md) — development guidelines,
+  profile validation, and pre-commit hooks.
+- [`docs/testing.md`](docs/testing.md) — running the rspec control test suite.
 
 ## License
 
