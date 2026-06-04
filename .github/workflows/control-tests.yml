@@ -41,62 +41,6 @@ jobs:
           bundler-cache: true
           ruby-version: '3.4' # Not needed with a .ruby-version, .tool-versions or mise.toml
 
-      # TEMPORARY DIAGNOSTIC (revert after capturing evidence): probe what
-      # cinc-auditor 7.x writes to the JSON reporter inside the runner.
-      - name: DEBUG cinc 7.x reporter probe
-        run: |
-          set -x
-          docker run --rm --platform linux/amd64 --entrypoint cinc-auditor "$CINC_AUDITOR_IMAGE" version || true
-          docker version || true
-          docker info --format 'storage={{.Driver}} server={{.ServerVersion}}' || true
-          fix="$(mktemp -d)"; res="$(mktemp -d)"; chmod 777 "$res"
-          mkdir -p "$fix/proc/sys/kernel"
-          printf '2\n' > "$fix/proc/sys/kernel/randomize_va_space"
-          set +e
-          echo "=== A) controls dir as seen inside the container ==="
-          docker run --rm --platform linux/amd64 --user 0:0 -v "$GITHUB_WORKSPACE:/profile:ro" \
-            --entrypoint sh "$CINC_AUDITOR_IMAGE" -c 'id; ls -la /profile/controls | head; echo "count="; ls /profile/controls/*.rb | wc -l; head -3 /profile/inspec.yml'
-          probe() {
-            local tag="$1"; shift
-            rm -rf "$res"; mkdir -p "$res"; chmod 777 "$res"
-            docker run --rm --platform linux/amd64 --user 0:0 "$@" \
-              -v "$GITHUB_WORKSPACE:/profile:ro" -v "$fix:/fixture:ro" -v "$res:/results" \
-              "$CINC_AUDITOR_IMAGE" exec /profile --controls aslr-runtime-check \
-              --reporter json:/results/output.json --no-create-lockfile --input rootfs=/fixture -l debug 2>"/tmp/${tag}.err"
-            echo "$tag EXIT=$? controls_json=$(grep -o '"controls":\[[^]]*\]' "$res/output.json" 2>/dev/null | head -c 60)"
-            echo "  Loading lines: $(grep -c 'into #<Inspec::ProfileContext' "/tmp/${tag}.err")"
-            grep -iE 'supports_platform|skipping|unsupported|signature|unsigned|cannot|no such' "/tmp/${tag}.err" | head -3
-          }
-          echo "=== B) baseline (reproduce) ==="; probe baseline
-          echo "=== B-full) complete -l debug trace of baseline run ==="
-          grep -aE 'DEBUG|WARN|ERROR|Loading|fetch|git|Resolve|Reading|source|glob|dubious|ownership|safe.directory' /tmp/baseline.err | head -80
-          echo "=== F) clean profile-only dir (inspec.yml + controls/ + libraries/ only) ==="
-          pclean="$(mktemp -d)"
-          cp "$GITHUB_WORKSPACE/inspec.yml" "$pclean/"
-          cp -a "$GITHUB_WORKSPACE/controls" "$GITHUB_WORKSPACE/libraries" "$pclean/"
-          ls -la "$pclean"
-          rm -rf "$res"; mkdir -p "$res"; chmod 777 "$res"
-          docker run --rm --platform linux/amd64 --user 0:0 \
-            -v "$pclean:/profile:ro" -v "$fix:/fixture:ro" -v "$res:/results" \
-            "$CINC_AUDITOR_IMAGE" exec /profile --controls aslr-runtime-check \
-            --reporter json:/results/output.json --no-create-lockfile --input rootfs=/fixture; echo "F EXIT=$?"
-          echo "F controls_json=$(grep -o '"controls":\[[^]]*\]' "$res/output.json" 2>/dev/null | head -c 60)"
-          echo "=== G) bisect: clean profile + ONE extra top-level item ==="
-          for item in tools test .github .chainguard results LICENSE README.md .gitignore .rubocop.yml .pre-commit-config.yaml inspec.lock; do
-            [ -e "$GITHUB_WORKSPACE/$item" ] || { echo "  $item: (absent)"; continue; }
-            d="$(mktemp -d)"
-            cp "$GITHUB_WORKSPACE/inspec.yml" "$d/"; cp -a "$GITHUB_WORKSPACE/controls" "$GITHUB_WORKSPACE/libraries" "$d/"
-            cp -a "$GITHUB_WORKSPACE/$item" "$d/"
-            rm -rf "$res"; mkdir -p "$res"; chmod 777 "$res"
-            docker run --rm --platform linux/amd64 --user 0:0 \
-              -v "$d:/profile:ro" -v "$fix:/fixture:ro" -v "$res:/results" \
-              "$CINC_AUDITOR_IMAGE" exec /profile --controls aslr-runtime-check \
-              --reporter json:/results/output.json --no-create-lockfile --input rootfs=/fixture >/dev/null 2>&1
-            echo "  + $item -> $(grep -o '"controls":\[[^]]*\]' "$res/output.json" 2>/dev/null | head -c 40)"
-          done
-          set -e
-          echo "=== END PROBE ==="
-
       - name: Validate profile (cinc-auditor check)
         run: |
           # Validate a clean profile dir (inspec.yml + controls/ + libraries/),
@@ -111,6 +55,4 @@ jobs:
 
       - name: Run control tests
         working-directory: test
-        env:
-          INSPEC_DEBUG: '1'
         run: bundle exec rspec
