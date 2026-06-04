@@ -215,8 +215,16 @@ cinc_run_docker_transport() {
         -v /var/run/docker.sock:/var/run/docker.sock
     )
 
+    # Mount only the profile's own files into /profile (not the repo root): cinc-
+    # auditor / InSpec 7.x reads a directory profile as a control-less gem
+    # resource pack if any *.gemspec exists anywhere under the profile path (e.g.
+    # test/vendor/bundle). See docs/testing.md and inspec/inspec#7934.
     if ! $USE_EMBEDDED_PROFILE; then
-        auditor_args+=(-v "${PROFILE_DIR}:/profile:ro")
+        auditor_args+=(
+            -v "${PROFILE_DIR}/inspec.yml:/profile/inspec.yml:ro"
+            -v "${PROFILE_DIR}/controls:/profile/controls:ro"
+            -v "${PROFILE_DIR}/libraries:/profile/libraries:ro"
+        )
     fi
 
     if [ "${#EXTRA_AUDITOR_ARGS[@]}" -gt 0 ]; then
