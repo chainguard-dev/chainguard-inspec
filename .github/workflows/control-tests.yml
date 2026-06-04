@@ -98,14 +98,19 @@ jobs:
           echo "=== END PROBE ==="
 
       - name: Validate profile (cinc-auditor check)
-        if: always()
         run: |
+          # Validate a clean profile dir (inspec.yml + controls/ + libraries/),
+          # not the repo root: cinc-auditor 7.x discovers no controls when the
+          # profile path also contains non-profile trees such as test/vendor.
+          stage="$(mktemp -d)"
+          cp "$GITHUB_WORKSPACE/inspec.yml" "$stage/"
+          cp -a "$GITHUB_WORKSPACE/controls" "$GITHUB_WORKSPACE/libraries" "$stage/"
           docker run --rm --platform linux/amd64 \
-            -v "$GITHUB_WORKSPACE:/profile:ro" \
+            -v "$stage:/profile:ro" \
             "$CINC_AUDITOR_IMAGE" check /profile
 
       - name: Run control tests
         working-directory: test
         env:
           INSPEC_DEBUG: '1'
-        run: bundle exec rspec spec/controls/aslr_check_spec.rb
+        run: bundle exec rspec

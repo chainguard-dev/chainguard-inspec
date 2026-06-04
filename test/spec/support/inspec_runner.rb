@@ -16,8 +16,32 @@ require 'fileutils'
 # All controls use ENV['ROOTFS_DIR'] || input('rootfs'). Tests always pass
 # rootfs via --input (not ROOTFS_DIR) so the input mechanism is exercised.
 class InspecRunner
-  # Path to the chainguard-inspec profile root (3 levels up from support/)
-  PROFILE_PATH = File.expand_path('../../..', __dir__).freeze
+  # Repository root (3 levels up from support/). The InSpec profile lives at the
+  # repo root, but the root also holds non-profile content. In particular,
+  # bundler vendors gems into test/vendor/bundle (e.g. CI's setup-ruby
+  # bundler-cache), and cinc-auditor / InSpec 7.x discovers ZERO controls when
+  # handed a profile path whose tree contains such vendored gem dirs (it loads
+  # the profile metadata but no controls, exiting 0). To stay robust we evaluate
+  # a staged copy that contains only the profile files — which also mirrors what
+  # a consumer receives from a clean git checkout. See docs/testing.md.
+  REPO_ROOT = File.expand_path('../../..', __dir__).freeze
+
+  # The files/directories that make up the InSpec profile proper.
+  PROFILE_ENTRIES = %w[inspec.yml controls libraries].freeze
+
+  # Lazily assemble (once per process) a clean profile directory containing only
+  # the profile files, and return its path. Cleaned up at process exit.
+  def self.profile_path
+    @profile_path ||= begin
+      dir = Dir.mktmpdir('chainguard-inspec-profile')
+      at_exit { FileUtils.rm_rf(dir) }
+      PROFILE_ENTRIES.each do |entry|
+        src = File.join(REPO_ROOT, entry)
+        FileUtils.cp_r(src, dir) if File.exist?(src)
+      end
+      dir
+    end
+  end
 
   def self.run(control_id, rootfs:, extra_inputs: {})
     case detect_mode
@@ -119,7 +143,7 @@ class InspecRunner
 
   def self.build_direct_cmd(control_id, rootfs:, extra_inputs:, json_path:)
     inputs = ["rootfs=#{rootfs}"] + extra_inputs.map { |k, v| "#{k}=#{v}" }
-    cmd = [auditor_bin, 'exec', PROFILE_PATH,
+    cmd = [auditor_bin, 'exec', profile_path,
            '--controls', control_id,
            '--reporter', "json:#{json_path}",
            '--no-create-lockfile',
@@ -134,7 +158,7 @@ class InspecRunner
     cmd = docker_cmd + ['run', '--rm',
            '--platform', 'linux/amd64',
            '--user', '0:0',
-           '-v', "#{PROFILE_PATH}:/profile:ro",
+           '-v', "#{profile_path}:/profile:ro",
            '-v', "#{rootfs}:/fixture:ro",
            '-v', "#{results_dir}:/results",
            image,
@@ -192,8 +216,21 @@ class InspecResult
     lines << "cmd: #{@cmd.join(' ')}" if @cmd
     lines << "stdout: #{@stdout.empty? ? '(empty)' : @stdout}"
     lines << "stderr: #{@stderr.empty? ? '(empty)' : @stderr}"
-    lines << "(no JSON output)" unless @raw_json
+    lines << "cinc-auditor JSON: #{reporter_json_for_diagnostic}"
     lines.join("\n")
+  end
+
+  # The reporter JSON cinc-auditor produced, pretty-printed when parseable, so a
+  # failure shows exactly what the runner saw — e.g. an empty `controls` array
+  # (profile loaded but no controls discovered) vs. an empty/absent file. This
+  # is the evidence that distinguishes a real test failure from a profile/runner
+  # problem, so always include it.
+  def reporter_json_for_diagnostic
+    return '(no reporter file produced)' if @raw_json.nil?
+    return '(empty reporter file)' if @raw_json.strip.empty?
+
+    text = @data ? JSON.pretty_generate(@data) : "(unparseable) #{@raw_json}"
+    text.length > 6000 ? "#{text[0, 6000]}\n... (truncated)" : "\n#{text}"
   end
 end
 
