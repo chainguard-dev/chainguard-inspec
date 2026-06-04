@@ -2,6 +2,9 @@ require 'spec_helper'
 require 'tmpdir'
 require 'fileutils'
 
+# NOTE: temporary touch to trigger Control Tests CI for the cinc 7.x reporter
+# diagnostic; revert together with the workflow DEBUG step.
+
 RSpec.describe 'aslr-runtime-check' do
   let(:rootfs) { Dir.mktmpdir }
   after { FileUtils.rm_rf(rootfs) }

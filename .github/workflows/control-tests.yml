@@ -8,6 +8,7 @@ on:
       - 'controls/**'
       - 'test/**'
       - 'inspec.yml'
+      - '.github/workflows/control-tests.yml'
 
 permissions: {}
 
@@ -40,6 +41,32 @@ jobs:
           bundler-cache: true
           ruby-version: '3.4' # Not needed with a .ruby-version, .tool-versions or mise.toml
 
+      # TEMPORARY DIAGNOSTIC (revert after capturing evidence): probe what
+      # cinc-auditor 7.x writes to the JSON reporter inside the runner.
+      - name: DEBUG cinc 7.x reporter probe
+        run: |
+          set -x
+          docker run --rm --platform linux/amd64 --entrypoint cinc-auditor "$CINC_AUDITOR_IMAGE" version || true
+          docker version || true
+          docker info --format 'storage={{.Driver}} server={{.ServerVersion}}' || true
+          fix="$(mktemp -d)"; res="$(mktemp -d)"; chmod 777 "$res"
+          mkdir -p "$fix/proc/sys/kernel"
+          printf '2\n' > "$fix/proc/sys/kernel/randomize_va_space"
+          set +e
+          docker run --rm --platform linux/amd64 --user 0:0 \
+            -v "$GITHUB_WORKSPACE:/profile:ro" -v "$fix:/fixture:ro" -v "$res:/results" \
+            "$CINC_AUDITOR_IMAGE" exec /profile --controls aslr-runtime-check \
+            --reporter json:/results/output.json --no-create-lockfile --input rootfs=/fixture -l debug
+          echo "PROBE_EXIT=$?"
+          set -e
+          echo "=== ls -la results dir ==="; ls -la "$res"
+          echo "=== wc -c output.json ==="; wc -c "$res/output.json" 2>&1 || echo NOFILE
+          echo "=== output.json (head -c 4000) ==="; head -c 4000 "$res/output.json" 2>&1 || true
+          echo ""
+          echo "=== END PROBE ==="
+
       - name: Run control tests
         working-directory: test
-        run: bundle exec rspec
+        env:
+          INSPEC_DEBUG: '1'
+        run: bundle exec rspec spec/controls/aslr_check_spec.rb
