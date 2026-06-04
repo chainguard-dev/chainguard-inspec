@@ -68,16 +68,26 @@ jobs:
             grep -iE 'supports_platform|skipping|unsupported|signature|unsigned|cannot|no such' "/tmp/${tag}.err" | head -3
           }
           echo "=== B) baseline (reproduce) ==="; probe baseline
-          echo "=== C) with --allow-unsigned-profiles ==="; probe allowunsigned --env CHEF_ALLOW_UNSIGNED_PROFILES=1
-          echo "=== D) without --controls filter ==="
+          echo "=== B-full) complete -l debug trace of baseline run ==="
+          grep -aE 'DEBUG|WARN|ERROR|Loading|fetch|git|Resolve|Reading|source|glob|dubious|ownership|safe.directory' /tmp/baseline.err | head -80
+          echo "=== E) profile copied to a root-owned, .git-stripped dir ==="
+          pcopy="$(mktemp -d)"; cp -a "$GITHUB_WORKSPACE/." "$pcopy/"; rm -rf "$pcopy/.git"; chown -R 0:0 "$pcopy" 2>/dev/null || sudo chown -R 0:0 "$pcopy"
           rm -rf "$res"; mkdir -p "$res"; chmod 777 "$res"
           docker run --rm --platform linux/amd64 --user 0:0 \
-            -v "$GITHUB_WORKSPACE:/profile:ro" -v "$fix:/fixture:ro" -v "$res:/results" \
-            "$CINC_AUDITOR_IMAGE" exec /profile --reporter json:/results/output.json \
-            --no-create-lockfile --input rootfs=/fixture; echo "D EXIT=$?"
-          echo "D controls_json=$(grep -o '"controls":\[[^]]*\]' "$res/output.json" 2>/dev/null | head -c 60)"
+            -v "$pcopy:/profile:ro" -v "$fix:/fixture:ro" -v "$res:/results" \
+            "$CINC_AUDITOR_IMAGE" exec /profile --controls aslr-runtime-check \
+            --reporter json:/results/output.json --no-create-lockfile --input rootfs=/fixture -l debug 2>/tmp/ecopy.err
+          echo "E EXIT=$? controls_json=$(grep -o '"controls":\[[^]]*\]' "$res/output.json" 2>/dev/null | head -c 60)"
+          echo "E Loading lines: $(grep -c 'into #<Inspec::ProfileContext' /tmp/ecopy.err)"
           set -e
           echo "=== END PROBE ==="
+
+      - name: Validate profile (cinc-auditor check)
+        if: always()
+        run: |
+          docker run --rm --platform linux/amd64 \
+            -v "$GITHUB_WORKSPACE:/profile:ro" \
+            "$CINC_AUDITOR_IMAGE" check /profile
 
       - name: Run control tests
         working-directory: test
