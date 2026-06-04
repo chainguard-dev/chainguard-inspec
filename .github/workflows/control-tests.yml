@@ -70,15 +70,21 @@ jobs:
           echo "=== B) baseline (reproduce) ==="; probe baseline
           echo "=== B-full) complete -l debug trace of baseline run ==="
           grep -aE 'DEBUG|WARN|ERROR|Loading|fetch|git|Resolve|Reading|source|glob|dubious|ownership|safe.directory' /tmp/baseline.err | head -80
-          echo "=== E) profile copied to a root-owned, .git-stripped dir ==="
-          pcopy="$(mktemp -d)"; cp -a "$GITHUB_WORKSPACE/." "$pcopy/"; rm -rf "$pcopy/.git"; chown -R 0:0 "$pcopy" 2>/dev/null || sudo chown -R 0:0 "$pcopy"
+          echo "=== F) clean profile-only dir (inspec.yml + controls/ + libraries/ only) ==="
+          pclean="$(mktemp -d)"
+          cp "$GITHUB_WORKSPACE/inspec.yml" "$pclean/"
+          cp -a "$GITHUB_WORKSPACE/controls" "$GITHUB_WORKSPACE/libraries" "$pclean/"
+          ls -la "$pclean"
           rm -rf "$res"; mkdir -p "$res"; chmod 777 "$res"
           docker run --rm --platform linux/amd64 --user 0:0 \
-            -v "$pcopy:/profile:ro" -v "$fix:/fixture:ro" -v "$res:/results" \
+            -v "$pclean:/profile:ro" -v "$fix:/fixture:ro" -v "$res:/results" \
             "$CINC_AUDITOR_IMAGE" exec /profile --controls aslr-runtime-check \
-            --reporter json:/results/output.json --no-create-lockfile --input rootfs=/fixture -l debug 2>/tmp/ecopy.err
-          echo "E EXIT=$? controls_json=$(grep -o '"controls":\[[^]]*\]' "$res/output.json" 2>/dev/null | head -c 60)"
-          echo "E Loading lines: $(grep -c 'into #<Inspec::ProfileContext' /tmp/ecopy.err)"
+            --reporter json:/results/output.json --no-create-lockfile --input rootfs=/fixture; echo "F EXIT=$?"
+          echo "F controls_json=$(grep -o '"controls":\[[^]]*\]' "$res/output.json" 2>/dev/null | head -c 60)"
+          echo "=== G) what does cinc copy into its cache? ==="
+          docker run --rm --platform linux/amd64 --user 0:0 \
+            -v "$GITHUB_WORKSPACE:/profile:ro" --entrypoint bash "$CINC_AUDITOR_IMAGE" -c \
+            'cinc-auditor exec /profile --controls aslr-runtime-check --no-create-lockfile --input rootfs=/ >/dev/null 2>&1; echo "cache tree:"; find /root/.inspec/cache -maxdepth 3 | head -40'
           set -e
           echo "=== END PROBE ==="
 
