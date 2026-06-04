@@ -98,7 +98,7 @@ cinc_parse_positional_args() {
 # Sets: PROFILE_PATH, PROFILE_DIR, PROFILE_SOURCE,
 #       REPORT_SCRIPT_HOST, REPORT_SCRIPT_CONTAINER
 cinc_setup_profile_paths() {
-    PROFILE_DIR="${SCRIPT_DIR}/.."
+    PROFILE_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
     REPORT_SCRIPT_HOST="${SCRIPT_DIR}/generate_stig_html.rb"
     REPORT_SCRIPT_CONTAINER="/usr/share/chainguard-inspec/tools/generate_stig_html.rb"
     if $USE_EMBEDDED_PROFILE; then
@@ -221,8 +221,18 @@ cinc_run_auditor() {
         auditor_args+=(-v "${ROOTFS_MOUNT}:${rootfs_path}:ro")
     fi
 
+    # When using the local profile, do NOT bind-mount the repository root: cinc-
+    # auditor / InSpec 7.x reads a directory profile as a control-less gem
+    # resource pack if any *.gemspec exists anywhere under the profile path (e.g.
+    # test/vendor/bundle created by `bundle install`). Mount only the profile's
+    # own files into /profile so local dev artifacts can't hijack control
+    # discovery. See docs/testing.md and inspec/inspec#7934.
     if ! $USE_EMBEDDED_PROFILE; then
-        auditor_args+=(-v "${PROFILE_DIR}:/profile:ro")
+        auditor_args+=(
+            -v "${PROFILE_DIR}/inspec.yml:/profile/inspec.yml:ro"
+            -v "${PROFILE_DIR}/controls:/profile/controls:ro"
+            -v "${PROFILE_DIR}/libraries:/profile/libraries:ro"
+        )
     fi
 
     if [ "${#EXTRA_AUDITOR_ARGS[@]}" -gt 0 ]; then
