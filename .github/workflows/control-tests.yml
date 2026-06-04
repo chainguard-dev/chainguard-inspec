@@ -81,10 +81,19 @@ jobs:
             "$CINC_AUDITOR_IMAGE" exec /profile --controls aslr-runtime-check \
             --reporter json:/results/output.json --no-create-lockfile --input rootfs=/fixture; echo "F EXIT=$?"
           echo "F controls_json=$(grep -o '"controls":\[[^]]*\]' "$res/output.json" 2>/dev/null | head -c 60)"
-          echo "=== G) what does cinc copy into its cache? ==="
-          docker run --rm --platform linux/amd64 --user 0:0 \
-            -v "$GITHUB_WORKSPACE:/profile:ro" --entrypoint bash "$CINC_AUDITOR_IMAGE" -c \
-            'cinc-auditor exec /profile --controls aslr-runtime-check --no-create-lockfile --input rootfs=/ >/dev/null 2>&1; echo "cache tree:"; find /root/.inspec/cache -maxdepth 3 | head -40'
+          echo "=== G) bisect: clean profile + ONE extra top-level item ==="
+          for item in tools test .github .chainguard results LICENSE README.md .gitignore .rubocop.yml .pre-commit-config.yaml inspec.lock; do
+            [ -e "$GITHUB_WORKSPACE/$item" ] || { echo "  $item: (absent)"; continue; }
+            d="$(mktemp -d)"
+            cp "$GITHUB_WORKSPACE/inspec.yml" "$d/"; cp -a "$GITHUB_WORKSPACE/controls" "$GITHUB_WORKSPACE/libraries" "$d/"
+            cp -a "$GITHUB_WORKSPACE/$item" "$d/"
+            rm -rf "$res"; mkdir -p "$res"; chmod 777 "$res"
+            docker run --rm --platform linux/amd64 --user 0:0 \
+              -v "$d:/profile:ro" -v "$fix:/fixture:ro" -v "$res:/results" \
+              "$CINC_AUDITOR_IMAGE" exec /profile --controls aslr-runtime-check \
+              --reporter json:/results/output.json --no-create-lockfile --input rootfs=/fixture >/dev/null 2>&1
+            echo "  + $item -> $(grep -o '"controls":\[[^]]*\]' "$res/output.json" 2>/dev/null | head -c 40)"
+          done
           set -e
           echo "=== END PROBE ==="
 
