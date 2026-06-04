@@ -8,6 +8,7 @@ on:
       - 'controls/**'
       - 'test/**'
       - 'inspec.yml'
+      - '.github/workflows/control-tests.yml'
 
 permissions: {}
 
@@ -39,6 +40,18 @@ jobs:
           working-directory: test
           bundler-cache: true
           ruby-version: '3.4' # Not needed with a .ruby-version, .tool-versions or mise.toml
+
+      - name: Validate profile (cinc-auditor check)
+        run: |
+          # Validate a clean profile dir (inspec.yml + controls/ + libraries/),
+          # not the repo root: cinc-auditor 7.x discovers no controls when the
+          # profile path also contains non-profile trees such as test/vendor.
+          stage="$(mktemp -d)"
+          cp "$GITHUB_WORKSPACE/inspec.yml" "$stage/"
+          cp -a "$GITHUB_WORKSPACE/controls" "$GITHUB_WORKSPACE/libraries" "$stage/"
+          docker run --rm --platform linux/amd64 \
+            -v "$stage:/profile:ro" \
+            "$CINC_AUDITOR_IMAGE" check /profile
 
       - name: Run control tests
         working-directory: test
