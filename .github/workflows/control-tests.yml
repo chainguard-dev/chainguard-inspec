@@ -53,16 +53,30 @@ jobs:
           mkdir -p "$fix/proc/sys/kernel"
           printf '2\n' > "$fix/proc/sys/kernel/randomize_va_space"
           set +e
+          echo "=== A) controls dir as seen inside the container ==="
+          docker run --rm --platform linux/amd64 --user 0:0 -v "$GITHUB_WORKSPACE:/profile:ro" \
+            --entrypoint sh "$CINC_AUDITOR_IMAGE" -c 'id; ls -la /profile/controls | head; echo "count="; ls /profile/controls/*.rb | wc -l; head -3 /profile/inspec.yml'
+          probe() {
+            local tag="$1"; shift
+            rm -rf "$res"; mkdir -p "$res"; chmod 777 "$res"
+            docker run --rm --platform linux/amd64 --user 0:0 "$@" \
+              -v "$GITHUB_WORKSPACE:/profile:ro" -v "$fix:/fixture:ro" -v "$res:/results" \
+              "$CINC_AUDITOR_IMAGE" exec /profile --controls aslr-runtime-check \
+              --reporter json:/results/output.json --no-create-lockfile --input rootfs=/fixture -l debug 2>"/tmp/${tag}.err"
+            echo "$tag EXIT=$? controls_json=$(grep -o '"controls":\[[^]]*\]' "$res/output.json" 2>/dev/null | head -c 60)"
+            echo "  Loading lines: $(grep -c 'into #<Inspec::ProfileContext' "/tmp/${tag}.err")"
+            grep -iE 'supports_platform|skipping|unsupported|signature|unsigned|cannot|no such' "/tmp/${tag}.err" | head -3
+          }
+          echo "=== B) baseline (reproduce) ==="; probe baseline
+          echo "=== C) with --allow-unsigned-profiles ==="; probe allowunsigned --env CHEF_ALLOW_UNSIGNED_PROFILES=1
+          echo "=== D) without --controls filter ==="
+          rm -rf "$res"; mkdir -p "$res"; chmod 777 "$res"
           docker run --rm --platform linux/amd64 --user 0:0 \
             -v "$GITHUB_WORKSPACE:/profile:ro" -v "$fix:/fixture:ro" -v "$res:/results" \
-            "$CINC_AUDITOR_IMAGE" exec /profile --controls aslr-runtime-check \
-            --reporter json:/results/output.json --no-create-lockfile --input rootfs=/fixture -l debug
-          echo "PROBE_EXIT=$?"
+            "$CINC_AUDITOR_IMAGE" exec /profile --reporter json:/results/output.json \
+            --no-create-lockfile --input rootfs=/fixture; echo "D EXIT=$?"
+          echo "D controls_json=$(grep -o '"controls":\[[^]]*\]' "$res/output.json" 2>/dev/null | head -c 60)"
           set -e
-          echo "=== ls -la results dir ==="; ls -la "$res"
-          echo "=== wc -c output.json ==="; wc -c "$res/output.json" 2>&1 || echo NOFILE
-          echo "=== output.json (head -c 4000) ==="; head -c 4000 "$res/output.json" 2>&1 || true
-          echo ""
           echo "=== END PROBE ==="
 
       - name: Run control tests
