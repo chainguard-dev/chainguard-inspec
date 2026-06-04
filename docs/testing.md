@@ -58,6 +58,41 @@ All controls read `ENV['ROOTFS_DIR'] || input('rootfs')`; the harness always
 passes the fixture path via `--input rootfs=...` (never `ROOTFS_DIR`) so the
 input mechanism itself is exercised.
 
+## The profile is evaluated from a staged clean copy (not the repo root)
+
+The harness does **not** point cinc-auditor at the repository root. It stages a
+clean directory containing only `inspec.yml` + `controls/` + `libraries/` (see
+`InspecRunner.profile_path` in `inspec_runner.rb`) and evaluates that. This is
+deliberate, and the reason is a sharp-edged behaviour change in cinc-auditor /
+InSpec **7.x**:
+
+> **Gotcha — a stray `*.gemspec` anywhere under the profile path makes 7.x find
+> zero controls.** InSpec 7.0 added a "gem" source reader
+> (`source_readers/gem.rb`) whose `resolve` claims a profile when *any* file in
+> the tree path-matches `/gemspec/`, and it outranks the normal `inspec.yml`
+> reader. A gem-read profile is treated as a resource pack and exposes **no
+> controls** (`@tests = {}`). Our profile lives at the repo root, and
+> `bundle install` (or CI's `setup-ruby` `bundler-cache`) vendors gems into
+> `test/vendor/bundle/.../specifications/*.gemspec`. So evaluating the repo root
+> directly while `test/vendor` exists makes 7.x silently discover **0 controls**
+> — every control reports `status: error`, and `cinc-auditor check` prints
+> `No controls or tests were defined`. cinc-auditor 5.x/6.x are unaffected (no
+> gem source reader); the regression is at the 6.x→7.0 boundary.
+
+Implications:
+
+- The unit-test harness sidesteps it by staging the clean profile copy above.
+- When you run cinc-auditor against the profile **yourself**, point it at a
+  clean checkout or a git URL (vendored gems are gitignored, so a fresh clone is
+  unaffected) — not a working tree that has had `bundle install` run under
+  `test/`. The `tools/` scan scripts mount the local tree for
+  `--use-local-profile`; on a bundled checkout they will hit this until they
+  adopt the same staged-copy approach (tracked follow-up).
+- A single `.gemspec` reproduces it: a clean profile dir plus one dummy
+  `*.gemspec` file yields `controls:[]` on 7.x.
+
+Upstream issue: [inspec/inspec#7934](https://github.com/inspec/inspec/issues/7934).
+
 ## Running locally with system rspec + the private cinc-auditor image
 
 Common developer setup: system-installed `rspec`, Docker present, and no
