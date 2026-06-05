@@ -53,4 +53,27 @@ RSpec.describe 'oval:org.LibraryPermissions:def:2' do
       expect(run_control('oval:org.LibraryPermissions:def:2', rootfs: rootfs)).to be_failing
     end
   end
+
+  # Regression test for shell-escaping of the find(1) path argument.
+  # A real scan may point rootfs at an image extracted to a directory whose
+  # name contains a space. The control builds command("find <lib_path> ...")
+  # with lib_path = File.join(rootfs, 'usr/lib'). Without shell-escaping the
+  # interpolated path, the shell word-splits it, find scans a nonexistent
+  # directory and returns nothing, and the control passes vacuously — silently
+  # auditing ZERO libraries. With escaping it scans the real directory and
+  # flags the non-root-owned file. We assert failure to prove the scan happened.
+  context 'when the rootfs path contains a space' do
+    let(:prefix) { 'has space' }
+    let(:usr_lib_path) { File.join(rootfs, prefix, 'usr/lib') }
+    let(:libbad_path) { File.join(usr_lib_path, 'libbad.so') }
+
+    before { File.write(libbad_path, "ELF stub\n") }
+
+    it 'still scans libraries (path shell-escaped) and flags the non-root file' do
+      skip 'only meaningful when not running as root' if Process.uid == 0
+      # File created by non-root user is already non-root-owned — no chown needed.
+      result = run_control('oval:org.LibraryPermissions:def:2', rootfs: rootfs, rootfs_prefix: prefix)
+      expect(result).to be_failing
+    end
+  end
 end

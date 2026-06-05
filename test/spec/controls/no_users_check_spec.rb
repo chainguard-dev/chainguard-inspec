@@ -83,4 +83,43 @@ RSpec.describe 'oval:org.NoUsers:def:1' do
       expect(run_control('oval:org.NoUsers:def:1', rootfs: rootfs)).to be_passing
     end
   end
+
+  # A structurally malformed /etc/passwd entry (wrong field count) must be a
+  # failing finding, not silently dropped: a truncated line such as
+  # "evil:x:0:0" has < 7 fields, so the previous `next unless parts.length >= 7`
+  # discarded it — letting a crafted UID-0 entry evade evaluation entirely.
+  context 'when /etc/passwd has a structurally malformed (truncated) entry after nobody' do
+    before do
+      File.write(File.join(etc_dir, 'passwd'), <<~PASSWD)
+        root:x:0:0:root:/root:/sbin/nologin
+        nobody:x:65534:65534:nobody:/:/sbin/nologin
+        evil:x:0:0
+      PASSWD
+      write_shadow('root', 'nobody', 'evil')
+    end
+
+    it 'fails (cannot evaluate account correctness against a malformed entry)' do
+      expect(run_control('oval:org.NoUsers:def:1', rootfs: rootfs)).to be_failing
+    end
+  end
+
+  # A valid entry whose trailing field is legitimately empty (empty shell) still
+  # has 7 colon-separated fields and must NOT be flagged as malformed. This
+  # guards the field-count check against naive String#split, which drops trailing
+  # empty fields ("svc:x:1:1:svc:/home/svc:".split(':') => 6 elements). Placed
+  # before nobody so it is not also subject to the post-nobody account check.
+  context 'when a system passwd entry has an empty trailing field but the right field count' do
+    before do
+      File.write(File.join(etc_dir, 'passwd'), <<~PASSWD)
+        root:x:0:0:root:/root:/sbin/nologin
+        svc:x:1:1:svc:/home/svc:
+        nobody:x:65534:65534:nobody:/:/sbin/nologin
+      PASSWD
+      write_shadow('root', 'svc', 'nobody')
+    end
+
+    it 'passes' do
+      expect(run_control('oval:org.NoUsers:def:1', rootfs: rootfs)).to be_passing
+    end
+  end
 end

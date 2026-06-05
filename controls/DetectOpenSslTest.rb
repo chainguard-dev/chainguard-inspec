@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+require 'shellwords'
+
 control 'oval:org.OpenSsl:def:1' do
   impact 0.5
   title 'Check for OpenSSL FIPS Packages'
@@ -60,7 +62,7 @@ control 'oval:org.OpenSsl:def:1' do
   # Find FIPS module files
   fips_module_files =
     if ssl_dir_resource.exist? && find_cmd
-      command("#{find_cmd} #{ssl_dir} -type f -a -name '*fipsmodule*' -print0").stdout.split("\0").sort
+      command("#{find_cmd} #{Shellwords.escape(ssl_dir)} -type f -a -name '*fipsmodule*' -print0").stdout.split("\0").sort
     else
       []
     end
@@ -68,7 +70,7 @@ control 'oval:org.OpenSsl:def:1' do
   # Find OpenSSL config files
   openssl_conf_files =
     if ssl_dir_resource.exist? && find_cmd
-      command("#{find_cmd} #{ssl_dir} -type f -a -name '*openssl*' -print0").stdout.split("\0").sort
+      command("#{find_cmd} #{Shellwords.escape(ssl_dir)} -type f -a -name '*openssl*' -print0").stdout.split("\0").sort
     else
       []
     end

@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+require 'shellwords'
+
 control 'oval:org.LibraryPermissions:def:2' do
   impact 0.5
   title 'Check Library Permissions'
@@ -49,7 +51,7 @@ control 'oval:org.LibraryPermissions:def:2' do
 
   entries =
     if lib_dir.exist? && find_cmd
-      command("#{find_cmd} #{lib_path} -type f -print0").stdout.split("\0").sort
+      command("#{find_cmd} #{Shellwords.escape(lib_path)} -type f -print0").stdout.split("\0").sort
     else
       []
     end

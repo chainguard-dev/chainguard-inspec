@@ -100,6 +100,24 @@ control 'oval:org.NoUsers:def:1' do
 
   passwd_lines = passwd_resource.content.split("\n")
 
+  # Structural validity of /etc/passwd: every non-blank entry must have exactly
+  # 7 colon-separated fields. A malformed (e.g. truncated) line means we cannot
+  # reliably evaluate account correctness — a crafted short line such as
+  # "evil:x:0:0" must not silently evade the unauthorized-account check below.
+  # split(':', -1) preserves trailing empty fields so a legitimately empty shell
+  # ("svc:x:1:1:svc:/home/svc:") still counts as 7 fields, not 6.
+  malformed_passwd_entries = passwd_lines.reject { |line| line.strip.empty? }
+                                         .reject { |line| line.split(':', -1).length == 7 }
+
+  describe 'Structural validity of /etc/passwd' do
+    it 'every entry has exactly 7 colon-separated fields' do
+      evidence = malformed_passwd_entries.map(&:inspect).join(', ')
+      expect(malformed_passwd_entries).to be_empty,
+        "Malformed /etc/passwd entr#{malformed_passwd_entries.length == 1 ? 'y' : 'ies'} " \
+        "(expected 7 colon-separated fields): #{evidence}"
+    end
+  end
+
   # Find nobody in passwd file
   nobody_index = passwd_lines.index { |line| line.start_with?('nobody:') }
   describe 'Passwd file contains nobody entry' do

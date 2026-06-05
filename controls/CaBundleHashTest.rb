@@ -23,7 +23,7 @@ control 'oval:org.CABundleHash:def:1' do
     'SV-263659r982563_rule'
   ]
 
-  tag stig_priorities: ['medium']
+  tag stig_severities: ['medium']
 
   tag ccis: ['CCI-004909']
 
