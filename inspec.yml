@@ -24,11 +24,18 @@ supports:
 
 inputs:
   - name: expected_cacert_hash
+    # The default is the SHA-256 of the stock ca-certificates bundle at the
+    # current release (not a per-image value). Override it when the image is
+    # customized with packages that add further certificates, changing the hash.
     description: Expected SHA-256 hash of CA bundle
     type: string
     required: true
     value: 61efbd6d3f829f71039c57b29dd37d15ac7f33c4ece861aaef8c7d7a519cd1d9
   - name: rootfs
+    # Defaults to / on purpose: when running over a transport (docker:// against
+    # a container, or ssh:// to a VM) the profile should evaluate from the root
+    # of the target. Override it when evaluating a filesystem staged on the host
+    # — e.g. an extracted rootfs, or docker's mounted overlay merged directory.
     description: Path to extracted container root filesystem
     type: string
     required: true
