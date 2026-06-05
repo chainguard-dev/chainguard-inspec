@@ -34,37 +34,11 @@ control 'oval:org.PackageSignature:def:1' do
   repositories_path = File.join(rootfs, 'etc/apk/repositories')
   repositories_resource = file(repositories_path)
 
-  # Remove userinfo credentials: https://token@domain/path -> https://domain/path
-  def normalize_repo_url(url)
-    url.sub(%r{^(https?://)([^@]+@)}, '\1')
-  end
-
-  # Extract the lowercased host from a repo URL or bare domain: strip any
-  # user@ credentials and the scheme, then take everything up to the first
-  # *literal* '/' or ':'. The value is NOT URL-decoded, so a percent-encoded
-  # separator (%2F) stays literal and cannot smuggle a different host past the
-  # first '/'. (Non-blocking aside: this does not rely on apk/apko %-decoding
-  # behavior — see the fail-closed check in repo_allowed?.)
-  def repo_host(url)
-    no_scheme = normalize_repo_url(url).sub(%r{^https?://}, '')
-    no_scheme[%r{\A[^/:]*}].to_s.downcase
-  end
-
-  # A repository is allowed iff its host equals, or is a subdomain of, one of
-  # the allowed domains. Host-anchored and fail-closed: a host containing any
-  # character outside [a-z0-9.-] (e.g. a literal '%' from percent-encoding) is
-  # never allowed, regardless of how apk/apko might later decode it. Scheme and
-  # path are NOT part of this decision (HTTPS is enforced separately below).
-  def repo_allowed?(repo_url, allowed_domains)
-    host = repo_host(repo_url)
-    return false unless host.match?(/\A[a-z0-9.-]+\z/)
-
-    allowed_domains.any? { |domain| host == domain || host.end_with?(".#{domain}") }
-  end
-
-  # Allowed entries may be bare domains or full URLs; reduce each to its host.
-  # An empty list (after dropping blanks) denies all repositories.
-  allowed_domains = allowed_repos.map { |entry| repo_host(entry) }.reject(&:empty?)
+  # Repository allow-listing is host-anchored and fails closed; the URL/host
+  # parsing and the equal-or-subdomain decision live in libraries/repo_matcher.rb
+  # (unit-tested in test/spec/libraries/repo_matcher_spec.rb). Allowed entries
+  # may be bare domains or full URLs; an empty list denies all repositories.
+  allowed_domains = RepoMatcher.allowed_domains(allowed_repos)
 
   only_if 'An APK archive reference must exist' do
     repositories_resource.exist?
@@ -81,7 +55,7 @@ control 'oval:org.PackageSignature:def:1' do
 
   repo_lines = content.split("\n").reject { |line| line.strip.empty? || line.strip.start_with?('#') }
   non_https = repo_lines.reject { |line| line.match?(%r{^https://}) }
-  disallowed = repo_lines.reject { |line| repo_allowed?(line, allowed_domains) }
+  disallowed = repo_lines.reject { |line| RepoMatcher.allowed?(line, allowed_domains) }
 
   # Summary check
   describe 'APK repositories compliance summary' do
