@@ -116,6 +116,25 @@ cinc_check_ruby
 cinc_setup_profile_paths
 cinc_setup_output_paths "stig"
 cinc_print_scan_header "Filesystem reconstruction"
+
+# The rootfs is reconstructed on the host with `docker export | tar`. Only a
+# root-side extraction can restore the image's real file ownership; running
+# unprivileged makes every extracted file owned by the invoking user, so the
+# ownership controls report misleading results. Warn but continue so the rest
+# of the profile can still run.
+if [ "$(id -u)" -ne 0 ]; then
+    cat >&2 <<'EOF'
+============================================================
+WARNING: not running as root.
+  The filesystem is extracted with `docker export | tar`, which can only
+  preserve the image's real file ownership when run as root. Running
+  unprivileged makes every extracted file owned by you, so the ownership
+  controls (LibraryPermissionsTest, VarLogPermissionsTest) will report
+  misleading results. Re-run with `sudo` for a faithful ownership audit.
+============================================================
+EOF
+fi
+
 cinc_pull_image
 cinc_get_image_digest
 
@@ -141,7 +160,15 @@ cinc_capture_aslr
 
 CONTAINER_ID="$(docker create "${IMAGE}")"
 echo "Exporting filesystem from container ${CONTAINER_ID}..."
-docker export "${CONTAINER_ID}" | tar -C "${ROOTFS_DIR}" -xf - --no-same-owner --exclude='dev/*'
+# Extract WITHOUT --no-same-owner: as root, tar's default (--same-owner)
+# restores the image's archived uid/gid so the ownership controls
+# (LibraryPermissionsTest, VarLogPermissionsTest) see the real ownership rather
+# than a uniform root:root. --numeric-owner uses the archive's numeric ids
+# instead of remapping through the host's passwd/group. Run as root for a
+# faithful audit — see the warning above; a non-root extraction cannot restore
+# ownership (tar falls back to --no-same-owner and files are owned by the
+# invoking user).
+docker export "${CONTAINER_ID}" | tar -C "${ROOTFS_DIR}" -xf - --numeric-owner --exclude='dev/*'
 docker rm "${CONTAINER_ID}" >/dev/null
 
 # Inject captured runtime data into extracted filesystem
