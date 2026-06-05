@@ -84,4 +84,84 @@ RSpec.describe 'oval:org.RemoteAccessServices:def:1' do
       expect(run_control('oval:org.RemoteAccessServices:def:1', rootfs: rootfs)).to be_failing
     end
   end
+
+  # A banned package shipped as a version stream carries a digit-led suffix in
+  # its P: name (openssh -> openssh-9.7). It must still be flagged.
+  context 'when a banned package is present as a version stream (P:openssh-9.7)' do
+    before do
+      File.write(apk_db_path, <<~APK_DB)
+        C:Q1mmmmnnnnoooo==
+        P:openssh-9.7
+        V:9.7_p1-r0
+        A:x86_64
+
+      APK_DB
+    end
+
+    it 'fails' do
+      expect(run_control('oval:org.RemoteAccessServices:def:1', rootfs: rootfs)).to be_failing
+    end
+  end
+
+  # A separate subpackage carries a word-led suffix (openssh-keygen). Banning
+  # `openssh` must NOT implicitly ban `openssh-keygen`, which is not itself in
+  # the banned list.
+  context 'when only a word-suffix subpackage of a banned package is present (P:openssh-keygen)' do
+    before do
+      File.write(apk_db_path, <<~APK_DB)
+        C:Q1ppppqqqqrrrr==
+        P:openssh-keygen
+        V:9.7_p1-r0
+        A:x86_64
+
+      APK_DB
+    end
+
+    it 'passes' do
+      expect(run_control('oval:org.RemoteAccessServices:def:1', rootfs: rootfs)).to be_passing
+    end
+  end
+
+  # Contrast with openssh-keygen above: openssh-server and openssh-sftp-server
+  # ARE word-suffix subpackages, but they are listed in banned_remote_packages
+  # in their own right, so they must still be flagged via their own exact entry
+  # (not via the `openssh` entry, which does not match word-led suffixes).
+  context 'when explicitly-listed openssh subpackages are present (openssh-server, openssh-sftp-server)' do
+    before do
+      File.write(apk_db_path, <<~APK_DB)
+        C:Q1ssssttttuuuu==
+        P:openssh-server
+        V:9.7_p1-r0
+        A:x86_64
+
+        C:Q1vvvvwwwwxxxx==
+        P:openssh-sftp-server
+        V:9.7_p1-r0
+        A:x86_64
+
+      APK_DB
+    end
+
+    it 'fails' do
+      expect(run_control('oval:org.RemoteAccessServices:def:1', rootfs: rootfs)).to be_failing
+    end
+  end
+
+  # A listed subpackage shipped as a version stream (openssh-server-9.7) must
+  # also be flagged: the digit-led suffix matches its own exact entry.
+  context 'when a listed openssh subpackage is present as a version stream (P:openssh-server-9.7)' do
+    before do
+      File.write(apk_db_path, <<~APK_DB)
+        C:Q1yyyyzzzz0000==
+        P:openssh-server-9.7
+        V:9.7_p1-r0
+        A:x86_64
+
+      APK_DB
+    end
+
+    it 'fails' do
+      expect(run_control('oval:org.RemoteAccessServices:def:1', rootfs: rootfs)).to be_failing
+    end
+  end
 end

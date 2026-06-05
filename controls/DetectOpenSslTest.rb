@@ -184,20 +184,16 @@ control 'oval:org.OpenSsl:def:1' do
   present_packages = []
   package_details = {}
 
-  unless installed_db_read.empty?
-    lines = installed_db_read.split("\n")
+  # A required package is satisfied by its exact name or a version-stream variant
+  # (openssl-provider-fips -> openssl-provider-fips-3.1), but NOT by a separate
+  # subpackage (openssl-provider-fips-doc). The matched full name (version suffix
+  # included) is captured for evidence below. See libraries/apk_db.rb.
+  required_packages.each do |pkg|
+    matched = ApkDb.matched_package_name(installed_db_read, pkg)
+    next unless matched
 
-    # Find and extract package details
-    required_packages.each do |pkg|
-      pattern = /^P:#{Regexp.escape(pkg)}(?:-[\w\.+~:]+)?$/
-      matching_line = lines.find { |line| line.match?(pattern) }
-
-      next unless matching_line
-
-      present_packages << pkg
-      # Extract full package name with version
-      package_details[pkg] = matching_line.sub(/^P:/, '')
-    end
+    present_packages << pkg
+    package_details[pkg] = matched
   end
 
   # Display each required package with its installation details

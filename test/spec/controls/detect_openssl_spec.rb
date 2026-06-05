@@ -77,6 +77,44 @@ RSpec.describe 'oval:org.OpenSsl:def:1' do
     APK_DB
   end
 
+  # APK db where the FIPS provider is shipped as a version stream: its P: name
+  # carries a digit-led suffix (openssl-provider-fips -> openssl-provider-fips-3.1).
+  # The required-package check must still recognize it as satisfied.
+  let(:apk_db_with_fips_version_stream) do
+    <<~APK_DB
+      C:Q1aaaabbbbcccc==
+      P:openssl-config-fipshardened
+      V:3.1.4-r0
+      A:x86_64
+
+      C:Q1ddddeeeeffffgg==
+      P:openssl-provider-fips-3.1
+      V:3.1.4-r0
+      A:x86_64
+
+    APK_DB
+  end
+
+  # APK db where the bare required provider package is ABSENT and only a
+  # separate, word-suffix subpackage (openssl-provider-fips-doc) is present.
+  # config-fipshardened is present, so the only thing determining the result is
+  # whether the subpackage wrongly satisfies the openssl-provider-fips
+  # requirement — it must not.
+  let(:apk_db_with_fips_subpackage_only) do
+    <<~APK_DB
+      C:Q1aaaabbbbcccc==
+      P:openssl-config-fipshardened
+      V:3.1.4-r0
+      A:x86_64
+
+      C:Q1ddddeeeeffffgg==
+      P:openssl-provider-fips-doc
+      V:3.1.4-r0
+      A:x86_64
+
+    APK_DB
+  end
+
   # APK db with unrelated packages but not the FIPS ones
   let(:apk_db_without_fips_packages) do
     <<~APK_DB
@@ -148,6 +186,28 @@ RSpec.describe 'oval:org.OpenSsl:def:1' do
     before do
       setup_valid_ssl_dir
       setup_apk_db(apk_db_without_fips_packages)
+    end
+
+    it 'fails' do
+      expect(run_control('oval:org.OpenSsl:def:1', rootfs: rootfs)).to be_failing
+    end
+  end
+
+  context 'when the FIPS provider is present as a version stream (P:openssl-provider-fips-3.1)' do
+    before do
+      setup_valid_ssl_dir
+      setup_apk_db(apk_db_with_fips_version_stream)
+    end
+
+    it 'passes' do
+      expect(run_control('oval:org.OpenSsl:def:1', rootfs: rootfs)).to be_passing
+    end
+  end
+
+  context 'when only a word-suffix subpackage of the FIPS provider is present (P:openssl-provider-fips-doc)' do
+    before do
+      setup_valid_ssl_dir
+      setup_apk_db(apk_db_with_fips_subpackage_only)
     end
 
     it 'fails' do
