@@ -113,13 +113,13 @@ sudo ./tools/cinc-chainguard-overlay.sh cgr.dev/chainguard/nginx:latest dev
 
 ### `cinc-chainguard-docker-transport.sh` — Docker transport
 
-Extracts a statically-linked busybox binary from a helper image (default: `busybox:musl`), starts the target container with busybox bind-mounted at the paths cinc-auditor requires, and connects via the `docker://` transport backend. Works on Linux, macOS, and Windows (Docker Desktop). Useful when the target image lacks basic utilities.
+Extracts a statically-linked busybox binary from a helper image (default: `cgr.dev/chainguard/busybox-static:latest`), starts the target container with busybox bind-mounted at the paths cinc-auditor requires, and connects via the `docker://` transport backend. Works on Linux, macOS, and Windows (Docker Desktop). Useful when the target image lacks basic utilities.
 
 ```bash
 ./tools/cinc-chainguard-docker-transport.sh cgr.dev/chainguard/crane:latest dev
 ```
 
-Override the busybox source via environment variables:
+Override the busybox source via environment variables — for example, to use Docker Hub's `busybox:musl` instead of the default Chainguard image:
 
 ```bash
 BUSYBOX_SOURCE_IMAGE=busybox:musl BUSYBOX_BINARY_PATH=/bin/busybox \
@@ -136,10 +136,6 @@ This profile is intended to be comparable to the Chainguard XCCDF GPOS profile; 
 
 - `NoUsersCheck.rb` examines both `/etc/passwd` and `/etc/shadow` for unexpected users, whereas the XCCDF profile just looks at `/etc/shadow`. The InSpec profile also will consider users added by apko as part of the image build process as intended added users, while the XCCDF is not currently capable of doing so.
 - `DetectOpenSslTest.rb` is able to look for correct openssl.cnf ini configurations, whereas the XCCDF profile does simple pattern matching.
-
-### Using binary distributions of InSpec / cinc-auditor
-
-**Use the Chainguard cinc-auditor image to avoid this issue.** When performing runtime scanning of containers using a remote backend (e.g. `docker://`, `k8s-container://`), cinc-auditor did not correctly detect Chainguard images, causing filesystem object examinations to fail. This was fixed in the upstream inspec-train ruby gem in https://github.com/inspec/train/pull/812 and released in [v3.14.1](https://rubygems.org/gems/train/versions/3.14.1); however, the most recent binary release of cinc-auditor [7.0.95](http://downloads.cinc.sh/files/stable/cinc-auditor/) has not been rebuilt with the fixed version of the train gem and will break. The Chainguard cinc-auditor image and source-built versions incorporate the necessary fix.
 
 ### ASLR capture
 
