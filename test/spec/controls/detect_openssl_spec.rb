@@ -214,4 +214,29 @@ RSpec.describe 'oval:org.OpenSsl:def:1' do
       expect(run_control('oval:org.OpenSsl:def:1', rootfs: rootfs)).to be_failing
     end
   end
+
+  # Regression test for shell-escaping of the find(1) path argument.
+  # A real scan may point rootfs at an image extracted to a local directory
+  # whose name contains a space (or other shell metacharacters). The control
+  # builds command("find <ssl_dir> ...") with ssl_dir = File.join(rootfs, ...),
+  # so the interpolated path must be shell-escaped. Without escaping, the shell
+  # word-splits the path, find scans the wrong (nonexistent) directory, no FIPS
+  # files are found, and the control fails even though the fixture is valid.
+  context 'when the rootfs path contains a space' do
+    let(:prefix) { 'has space' }
+    # Place the fixture content beneath the space-containing subpath; the
+    # control's rootfs input is pointed there via rootfs_prefix.
+    let(:ssl_dir) { File.join(rootfs, prefix, 'etc/ssl') }
+    let(:apk_db_dir) { File.join(rootfs, prefix, 'usr/lib/apk/db') }
+
+    before do
+      setup_valid_ssl_dir
+      setup_apk_db(apk_db_with_fips_packages)
+    end
+
+    it 'passes (find path is shell-escaped)' do
+      result = run_control('oval:org.OpenSsl:def:1', rootfs: rootfs, rootfs_prefix: prefix)
+      expect(result).to be_passing
+    end
+  end
 end

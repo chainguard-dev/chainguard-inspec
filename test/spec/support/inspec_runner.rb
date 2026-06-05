@@ -43,12 +43,20 @@ class InspecRunner
     end
   end
 
-  def self.run(control_id, rootfs:, extra_inputs: {})
+  # rootfs_prefix lets a spec point the control's `rootfs` *input* at a subpath
+  # beneath the mounted fixture, rather than at the fixture root. This mirrors a
+  # real-world scan where an image is extracted to a local directory and rootfs
+  # is set to that extracted path — which, unlike the fixed /fixture mount, may
+  # contain spaces or other shell metacharacters. The fixture is still mounted
+  # at /fixture (docker) / used in place (direct); only the rootfs input value
+  # gains the prefix, so a spec can create fixtures under e.g. "has space/" and
+  # exercise paths the control must shell-escape. Default nil = rootfs at root.
+  def self.run(control_id, rootfs:, extra_inputs: {}, rootfs_prefix: nil)
     case detect_mode
     when :direct
-      run_direct(control_id, rootfs: rootfs, extra_inputs: extra_inputs)
+      run_direct(control_id, rootfs: rootfs, extra_inputs: extra_inputs, rootfs_prefix: rootfs_prefix)
     when :docker
-      run_docker(control_id, rootfs: rootfs, extra_inputs: extra_inputs)
+      run_docker(control_id, rootfs: rootfs, extra_inputs: extra_inputs, rootfs_prefix: rootfs_prefix)
     end
   end
 
@@ -98,11 +106,12 @@ class InspecRunner
     ENV.fetch('DOCKER_CMD', 'docker').split
   end
 
-  def self.run_direct(control_id, rootfs:, extra_inputs:)
+  def self.run_direct(control_id, rootfs:, extra_inputs:, rootfs_prefix: nil)
     tmpdir = Dir.mktmpdir
     begin
       json_path = File.join(tmpdir, 'result.json')
-      cmd = build_direct_cmd(control_id, rootfs: rootfs, extra_inputs: extra_inputs, json_path: json_path)
+      cmd = build_direct_cmd(control_id, rootfs: rootfs, extra_inputs: extra_inputs,
+                             rootfs_prefix: rootfs_prefix, json_path: json_path)
       stdout, stderr, process_status = Open3.capture3(*cmd)
       json_content = File.exist?(json_path) ? File.read(json_path) : nil
       result = InspecResult.new(control_id, json_content, stdout, stderr,
@@ -114,11 +123,12 @@ class InspecRunner
     end
   end
 
-  def self.run_docker(control_id, rootfs:, extra_inputs:)
+  def self.run_docker(control_id, rootfs:, extra_inputs:, rootfs_prefix: nil)
     results_dir = Dir.mktmpdir
     begin
       FileUtils.chmod(0o777, results_dir)
-      cmd = build_docker_cmd(control_id, rootfs: rootfs, extra_inputs: extra_inputs, results_dir: results_dir)
+      cmd = build_docker_cmd(control_id, rootfs: rootfs, extra_inputs: extra_inputs,
+                             rootfs_prefix: rootfs_prefix, results_dir: results_dir)
       stdout, stderr, process_status = Open3.capture3(*cmd)
       json_path = File.join(results_dir, 'output.json')
       json_content = File.exist?(json_path) ? File.read(json_path) : nil
@@ -141,8 +151,9 @@ class InspecRunner
     $stderr.puts "=== status: #{result.status} ==="
   end
 
-  def self.build_direct_cmd(control_id, rootfs:, extra_inputs:, json_path:)
-    inputs = ["rootfs=#{rootfs}"] + extra_inputs.map { |k, v| "#{k}=#{v}" }
+  def self.build_direct_cmd(control_id, rootfs:, extra_inputs:, json_path:, rootfs_prefix: nil)
+    rootfs_value = rootfs_prefix ? File.join(rootfs, rootfs_prefix) : rootfs
+    inputs = ["rootfs=#{rootfs_value}"] + extra_inputs.map { |k, v| "#{k}=#{v}" }
     cmd = [auditor_bin, 'exec', profile_path,
            '--controls', control_id,
            '--reporter', "json:#{json_path}",
@@ -151,10 +162,12 @@ class InspecRunner
     cmd
   end
 
-  def self.build_docker_cmd(control_id, rootfs:, extra_inputs:, results_dir:)
+  def self.build_docker_cmd(control_id, rootfs:, extra_inputs:, results_dir:, rootfs_prefix: nil)
     image = ENV['CINC_AUDITOR_IMAGE']
-    # rootfs inside the container is always /fixture (bind-mounted from host)
-    inputs = ['rootfs=/fixture'] + extra_inputs.map { |k, v| "#{k}=#{v}" }
+    # The fixture is bind-mounted at /fixture; the rootfs input points there, or
+    # at a subpath beneath it when rootfs_prefix is set (see .run).
+    rootfs_value = rootfs_prefix ? File.join('/fixture', rootfs_prefix) : '/fixture'
+    inputs = ["rootfs=#{rootfs_value}"] + extra_inputs.map { |k, v| "#{k}=#{v}" }
     cmd = docker_cmd + ['run', '--rm',
            '--platform', 'linux/amd64',
            '--user', '0:0',
@@ -252,7 +265,7 @@ end
 
 # Helper methods available in all spec files
 module InspecHelpers
-  def run_control(control_id, rootfs:, **extra_inputs)
-    InspecRunner.run(control_id, rootfs: rootfs, extra_inputs: extra_inputs)
+  def run_control(control_id, rootfs:, rootfs_prefix: nil, **extra_inputs)
+    InspecRunner.run(control_id, rootfs: rootfs, extra_inputs: extra_inputs, rootfs_prefix: rootfs_prefix)
   end
 end
