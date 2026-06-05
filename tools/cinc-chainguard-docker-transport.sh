@@ -206,6 +206,11 @@ cinc_run_docker_transport() {
 
     echo "Running Cinc Auditor (docker:// transport)..."
     set +e
+    # The bind-mounted Docker socket is root-equivalent on the host and is
+    # inherent to the docker:// transport (the auditor drives Docker to reach
+    # the target). --privileged here is a blanket grant beyond what the socket
+    # transport needs; narrowing it is a tracked follow-up. See the README
+    # "Required privileges".
     local auditor_args=(
         --rm
         --privileged

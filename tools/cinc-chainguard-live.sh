@@ -29,6 +29,18 @@
 # Note: this script starts the container's actual workload.  Do not use with
 # images that have undesirable side-effects when run; use cinc-chainguard.sh
 # (filesystem extraction) for those instead.
+#
+# The target must stay running for the whole scan: its filesystem is read live
+# through /proc/<PID>/root.  The State.Pid check below only catches a container
+# that exits *before* it; a workload that exits *during* the scan (e.g. a
+# service that needs config/a backend to stay up) makes /proc/<PID>/root vanish
+# and every control then finds nothing.  Use one of the other approaches for
+# images that are not self-sustaining.  See the README "Required privileges".
+#
+# Privileges: the auditor runs --privileged --pid=host as uid 0 in the
+# container; under rootful Docker that is real host root (so a non-root invoker
+# in the docker group works), under rootless Docker it requires real root to
+# read another container's /proc/<PID>/root.
 
 set -euo pipefail
 

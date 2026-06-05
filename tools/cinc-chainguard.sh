@@ -16,6 +16,13 @@
 # limitations under the License.
 
 # Filesystem reconstruction scan using Cinc Auditor
+#
+# Run as root (e.g. sudo): the rootfs is rebuilt on the host with
+# `docker export | tar`, and only a root-side extraction preserves the image's
+# real file ownership, which the ownership controls (LibraryPermissionsTest,
+# VarLogPermissionsTest) depend on.  A non-root run warns and continues but
+# those controls become unreliable.  The auditor container itself also runs
+# --privileged as uid 0.  See the README "Required privileges".
 
 set -euo pipefail
 

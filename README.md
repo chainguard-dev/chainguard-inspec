@@ -15,6 +15,7 @@ This repository provides an InSpec profile to evaluate Chainguard container imag
 
 - **Docker** with permission to run the Chainguard cinc-auditor image and to pull target container images.
 - **cinc-auditor image** (`cgr.dev/chainguard-private/cinc-auditor:latest`) pulled and accessible; override with the `CINC_AUDITOR_IMAGE` environment variable. This image is hosted in Chainguard's private registry and requires authenticated access to pull.
+- **Elevated privileges.** Every scan runs the cinc-auditor container as `root` (uid 0 inside the container) and `--privileged`; `cinc-chainguard.sh` and `cinc-chainguard-overlay.sh` additionally need the script itself run as root. Granting a container `--privileged` or the Docker socket is root-equivalent on the host, so only scan images and hosts you trust. See [Required privileges](#required-privileges) for the per-script breakdown.
 
 ## Optional
 
@@ -60,14 +61,31 @@ All scripts accept `<image> [label] [results-dir]` as positional arguments and w
 | `cinc-chainguard-overlay.sh`          | Live overlay2 filesystem  | Linux only         |
 | `cinc-chainguard-docker-transport.sh` | Docker transport backend  | Linux, macOS, Windows |
 
+### Required privileges
+
+Every scan launches a cinc-auditor container that Docker runs `--privileged` and as `root` (uid 0 **inside** the container) so it can read every file in the target regardless of mode or owner. The flags below are in addition to needing Docker itself:
+
+| Script | Run script as | `--privileged` | `--pid=host` | Docker socket | Why |
+| ------------------------------------- | --------------------- | :---: | :---: | :---: | --- |
+| `cinc-chainguard.sh`                  | **root** (`sudo`)     | yes | – | – | host-side `docker export \| tar` only preserves the image's real file ownership when run as root (a non-root run warns and the ownership controls become unreliable) |
+| `cinc-chainguard-live.sh`             | Docker access¹        | yes | yes | – | reads the running container's rootfs via `/proc/<PID>/root` in the host PID namespace; the target **must stay running** for the whole scan |
+| `cinc-chainguard-overlay.sh`          | **root** or `docker` group | yes | – | – | reads the root-owned overlay2 merged dir under `/var/lib/docker/overlay2/` (Linux + overlay2 driver only) |
+| `cinc-chainguard-docker-transport.sh` | any Docker user       | yes | – | **yes** | reaches the target only over the `docker://` backend; the bind-mounted Docker socket is the (inherent) root-equivalent grant |
+
+¹ Under **rootful** Docker the container's uid 0 is real host root, so `/proc/<PID>/root` is readable even when you invoke the script as a non-root member of the `docker` group. Under **rootless** Docker that uid 0 maps to your unprivileged user, so reading another container's `/proc/<PID>/root` requires running as real root.
+
+> **Trust posture.** These are local developer/scanning tools, not a sandbox. `--privileged` (all Linux capabilities, device access, relaxed seccomp/AppArmor) and a bind-mounted Docker socket each grant the cinc-auditor container root-equivalent control of the host. Only run them against container images and on hosts you trust. The blanket `--privileged` grant is broader than the read-only bind-mount scans strictly need; narrowing it to the specific capabilities each mode requires is a tracked follow-up.
+
 ### `cinc-chainguard.sh` — Filesystem reconstruction
 
 Exports the container image filesystem via `docker export`, extracts it to a tmpfs directory (or on-disk with `--no-tmpfs`), captures the host ASLR setting, and runs cinc-auditor against the extracted rootfs. Suitable for all images including distroless and short-lived containers.
 
 ```bash
-./tools/cinc-chainguard.sh cgr.dev/chainguard/nginx:latest dev
-./tools/cinc-chainguard.sh --no-tmpfs cgr.dev/chainguard/nginx:latest dev
+sudo ./tools/cinc-chainguard.sh cgr.dev/chainguard/nginx:latest dev
+sudo ./tools/cinc-chainguard.sh --no-tmpfs cgr.dev/chainguard/nginx:latest dev
 ```
+
+**Privileges:** run as root (e.g. `sudo`, as shown) so the extracted rootfs keeps the image's real file ownership; see [Required privileges](#required-privileges). A non-root run prints a warning and continues, but the ownership controls (`LibraryPermissionsTest`, `VarLogPermissionsTest`) will be unreliable because every extracted file ends up owned by the invoking user.
 
 ### `cinc-chainguard-live.sh` — Live container
 
@@ -79,13 +97,19 @@ Starts the container's actual workload, then runs cinc-auditor using `--pid=host
 ./tools/cinc-chainguard-live.sh cgr.dev/chainguard/nginx:latest dev
 ```
 
+**Privileges:** needs Docker access; the auditor runs `--privileged --pid=host` to reach `/proc/<PID>/root` (requires real root under rootless Docker — see [Required privileges](#required-privileges)).
+
+**The target must stay running for the entire scan.** Its filesystem is read live through `/proc/<PID>/root`, so if the workload exits early — for example a service that needs configuration or a backend to stay up, or an image whose entrypoint completes immediately — that path disappears and the controls report empty results (everything "found nothing") rather than a clear error. For short-lived, distroless, or non-self-sustaining images, use one of the other approaches instead. If a live scan returns nothing, check `docker ps -a` for the target: a `cinc-chainguard-live`-started container in an `Exited` state is the tell.
+
 ### `cinc-chainguard-overlay.sh` — Live overlay filesystem
 
 Reads the container's overlay2 merged directory directly via `docker inspect GraphDriver.Data.MergedDir`, avoiding full filesystem extraction. Faster than export/tar for large images. Requires a Linux host with Docker using the overlay2 storage driver and root or equivalent privileges to read paths under `/var/lib/docker/overlay2/`. Does not work with Docker Desktop on macOS or Windows.
 
 ```bash
-./tools/cinc-chainguard-overlay.sh cgr.dev/chainguard/nginx:latest dev
+sudo ./tools/cinc-chainguard-overlay.sh cgr.dev/chainguard/nginx:latest dev
 ```
+
+**Privileges:** run as root or as a member of the `docker` group — the overlay2 merged directory under `/var/lib/docker/overlay2/` is root-owned. See [Required privileges](#required-privileges).
 
 ### `cinc-chainguard-docker-transport.sh` — Docker transport
 
@@ -101,6 +125,8 @@ Override the busybox source via environment variables:
 BUSYBOX_SOURCE_IMAGE=busybox:musl BUSYBOX_BINARY_PATH=/bin/busybox \
   ./tools/cinc-chainguard-docker-transport.sh cgr.dev/chainguard/crane:latest dev
 ```
+
+**Privileges:** can run as any user with Docker access — no extra privileges beyond Docker itself. The auditor mounts the Docker socket, which is root-equivalent on the host, and runs `--privileged`. See [Required privileges](#required-privileges).
 
 ## Caveats
 
