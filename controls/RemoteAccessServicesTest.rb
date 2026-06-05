@@ -141,14 +141,12 @@ control 'oval:org.RemoteAccessServices:def:1' do
 
   banned_packages = Array(input('banned_remote_packages') || [])
 
-  present_packages = []
-  if installed_db.exist?
-    lines = installed_db.content.to_s.split("\n")
-    banned_packages.each do |pkg|
-      pattern = /^P:#{Regexp.escape(pkg)}(?:-[\w\.+~:]+)?$/
-      present_packages << pkg if lines.any? { |line| line.match?(pattern) }
-    end
-  end
+  # Flag a banned name and its version-stream variants (openssh -> openssh-9.7)
+  # but NOT a separate subpackage (openssh-keygen) unless that subpackage is
+  # itself listed. The digit-led-suffix discrimination lives in the ApkDb
+  # helper (libraries/apk_db.rb).
+  db_content = ApkDb.installed_db_content(self, installed_db_path)
+  present_packages = banned_packages.select { |pkg| ApkDb.package_present?(db_content, pkg) }
 
   describe 'Remote access packages' do
     it 'should not have any banned remote access packages installed' do

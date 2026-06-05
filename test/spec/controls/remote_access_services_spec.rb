@@ -84,4 +84,41 @@ RSpec.describe 'oval:org.RemoteAccessServices:def:1' do
       expect(run_control('oval:org.RemoteAccessServices:def:1', rootfs: rootfs)).to be_failing
     end
   end
+
+  # A banned package shipped as a version stream carries a digit-led suffix in
+  # its P: name (openssh -> openssh-9.7). It must still be flagged.
+  context 'when a banned package is present as a version stream (P:openssh-9.7)' do
+    before do
+      File.write(apk_db_path, <<~APK_DB)
+        C:Q1mmmmnnnnoooo==
+        P:openssh-9.7
+        V:9.7_p1-r0
+        A:x86_64
+
+      APK_DB
+    end
+
+    it 'fails' do
+      expect(run_control('oval:org.RemoteAccessServices:def:1', rootfs: rootfs)).to be_failing
+    end
+  end
+
+  # A separate subpackage carries a word-led suffix (openssh-keygen). Banning
+  # `openssh` must NOT implicitly ban `openssh-keygen`, which is not itself in
+  # the banned list.
+  context 'when only a word-suffix subpackage of a banned package is present (P:openssh-keygen)' do
+    before do
+      File.write(apk_db_path, <<~APK_DB)
+        C:Q1ppppqqqqrrrr==
+        P:openssh-keygen
+        V:9.7_p1-r0
+        A:x86_64
+
+      APK_DB
+    end
+
+    it 'passes' do
+      expect(run_control('oval:org.RemoteAccessServices:def:1', rootfs: rootfs)).to be_passing
+    end
+  end
 end
