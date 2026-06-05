@@ -167,13 +167,31 @@ installed_db_path = File.join(rootfs, 'usr/lib/apk/db/installed')
 installed_db = file(installed_db_path)
 ```
 
-Package entries start with `P:` followed by the package name and optional
-version suffix.  Match with:
+Package entries start with `P:` followed by the package *name*.  Use the
+shared `ApkDb` helper (`libraries/apk_db.rb`) rather than re-deriving the
+regex:
 
 ```ruby
-pattern = /^P:#{Regexp.escape(pkg_name)}(?:-[\w\.+~:]+)?$/
-lines.any? { |line| line.match?(pattern) }
+db = ApkDb.installed_db_content(self, installed_db_path)   # '' if absent
+ApkDb.package_present?(db, pkg_name)                        # => true / false
+ApkDb.matched_package_name(db, pkg_name)                    # full P: name, for evidence
 ```
+
+Internally the matcher is:
+
+```ruby
+pattern = /^P:#{Regexp.escape(pkg_name)}(?:-\d[\w.+~]*)?$/
+```
+
+The suffix is **digit-led** on purpose.  Chainguard/Wolfi ships *version
+streams* — parallel supported branches packaged under version-suffixed names
+(`openssl-3.0` / `openssl-3.1`, `python-3.12`, `openssh-9.7`) — and the `P:`
+line is the name, so a stream carries that suffix.  A check for `openssl` must
+match `openssl-3.1` (digit-led → version stream) but must NOT match a separate
+subpackage like `openssl-dev` or `openssh-keygen` (word-led → distinct
+package).  Explicitly-listed subpackages still match via their own exact entry.
+The older loose suffix `(?:-[\w.+~:]+)?` over-matched word-led subpackages and
+must not be reintroduced.
 
 Non-APK images will fail APK-based controls (same behaviour as the XCCDF
 profile).
