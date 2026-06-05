@@ -61,6 +61,31 @@ control 'oval:org.example:def:3' do
     it { should exist }
   end
 
+  # Structural validity of /etc/shadow: every non-blank entry must have exactly
+  # 9 colon-separated fields. The InSpec `shadow` resource parses positionally
+  # (line.split(":") + x.at(n)) and never validates field count, so a malformed
+  # or truncated line is silently accepted — e.g. "truncated:!:19000" parses
+  # with password="!" and would evade the locked-password check below. We cannot
+  # assert password correctness against an unparseable file, so a malformed entry
+  # is itself a finding. split(':', -1) preserves trailing empty fields so a
+  # legitimately empty reserved/expiry field still counts as 9, not fewer.
+  shadow_lines = file(shadow_path).content.to_s.split("\n").reject { |line| line.strip.empty? }
+  malformed_shadow_entries = shadow_lines.reject { |line| line.split(':', -1).length == 9 }
+
+  describe 'Structural validity of /etc/shadow' do
+    it 'every entry has exactly 9 colon-separated fields' do
+      # Report username + field count only — never the raw line, which may
+      # contain a password hash.
+      evidence = malformed_shadow_entries.map do |line|
+        fields = line.split(':', -1)
+        "#{fields[0].inspect} (#{fields.length} field#{fields.length == 1 ? '' : 's'})"
+      end.join(', ')
+      expect(malformed_shadow_entries).to be_empty,
+        "Malformed /etc/shadow entr#{malformed_shadow_entries.length == 1 ? 'y' : 'ies'} " \
+        "(expected 9 colon-separated fields): #{evidence}"
+    end
+  end
+
 # distroless baseline is that no accounts should have valid passwords
   describe shadow_resource.where { password !~ /^[!*]+$/ } do
     its('count') { should eq 0 }
