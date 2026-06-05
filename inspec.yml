@@ -41,14 +41,19 @@ inputs:
     required: true
     value: /
   - name: allowed_repositories
-    description: List of approved package repository prefixes
+    # A repository is allowed when its host equals, or is a subdomain of, one
+    # of these domains (so customer subdomains need no enumeration). Scheme and
+    # path are not matched (HTTPS is required separately); an empty list allows
+    # no repositories. Entries may be bare domains or full URLs (only the host
+    # is used).
+    description: Approved package repository domains (host or parent domain)
     type: array
     required: true
     value:
-      - https://apk.cgr.dev/chainguard
-      - https://packages.cgr.dev/extras
-      - https://packages.wolfi.dev/os
-      - https://apk.cgr.dev/
+      - apk.cgr.dev
+      - virtualapk.cgr.dev
+      - packages.cgr.dev
+      - packages.wolfi.dev
   - name: allowed_extra_users
     # user added by apko as part of the image build should be detected
     # and considered allowed automatically.
