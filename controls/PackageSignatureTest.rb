@@ -34,22 +34,11 @@ control 'oval:org.PackageSignature:def:1' do
   repositories_path = File.join(rootfs, 'etc/apk/repositories')
   repositories_resource = file(repositories_path)
 
-  # Helper to normalize URL by removing auth credentials for comparison
-  def normalize_repo_url(url)
-    # Remove credentials: https://token@domain/path -> https://domain/path
-    url.sub(%r{^(https?://)([^@]+@)}, '\1')
-  end
-
-  # Check if a repository URL matches any allowed prefix
-  def repo_allowed?(repo_url, allowed_prefixes)
-    return true if allowed_prefixes.empty?
-
-    normalized = normalize_repo_url(repo_url)
-    allowed_prefixes.any? do |prefix|
-      # Match if normalized URL starts with or contains the allowed prefix
-      normalized.start_with?(prefix) || normalized.include?(prefix.sub(%r{^https?://}, ''))
-    end
-  end
+  # Repository allow-listing is host-anchored and fails closed; the URL/host
+  # parsing and the equal-or-subdomain decision live in libraries/repo_matcher.rb
+  # (unit-tested in test/spec/libraries/repo_matcher_spec.rb). Allowed entries
+  # may be bare domains or full URLs; an empty list denies all repositories.
+  allowed_domains = RepoMatcher.allowed_domains(allowed_repos)
 
   only_if 'An APK archive reference must exist' do
     repositories_resource.exist?
@@ -66,7 +55,7 @@ control 'oval:org.PackageSignature:def:1' do
 
   repo_lines = content.split("\n").reject { |line| line.strip.empty? || line.strip.start_with?('#') }
   non_https = repo_lines.reject { |line| line.match?(%r{^https://}) }
-  disallowed = repo_lines.reject { |line| repo_allowed?(line, allowed_repos) }
+  disallowed = repo_lines.reject { |line| RepoMatcher.allowed?(line, allowed_domains) }
 
   # Summary check
   describe 'APK repositories compliance summary' do
@@ -74,12 +63,10 @@ control 'oval:org.PackageSignature:def:1' do
       expect(non_https).to be_empty
     end
 
-    it 'should all match approved repository prefixes' do
-      if allowed_repos.empty?
-        skip 'No allowed_repositories input provided'
-      else
-        expect(disallowed).to be_empty
-      end
+    it 'should all use an approved repository host (equal to or a subdomain of an allowed domain)' do
+      expect(disallowed).to be_empty,
+        "Disallowed repositor#{disallowed.length == 1 ? 'y' : 'ies'} " \
+        "(host is not an allowed domain or subdomain): #{disallowed.join(', ')}"
     end
   end
 end
