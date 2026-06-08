@@ -27,13 +27,12 @@
 #
 # Requirements:
 #   - Docker
-#   - A statically-linked busybox source image (default: busybox:musl).
+#   - A statically-linked busybox source image
+#     (default: cgr.dev/chainguard/busybox-static:latest).
 #     The binary must be statically linked so it runs inside distroless
 #     target images that lack shared libraries.
-#     Override with BUSYBOX_SOURCE_IMAGE.  The cinc-auditor image can also
-#     be used once it is publicly available, reducing the number of image
-#     dependencies.
-#   - The busybox binary path inside the source image (default: /bin/busybox)
+#     Override with BUSYBOX_SOURCE_IMAGE.
+#   - The busybox binary path inside the source image (default: /usr/bin/busybox)
 #     Override with BUSYBOX_BINARY_PATH.
 
 set -euo pipefail
@@ -78,13 +77,11 @@ Arguments:
 
 Environment variables:
   BUSYBOX_SOURCE_IMAGE   Image to extract a statically-linked busybox from
-                         (default: busybox:musl).  The binary must be
-                         statically linked to run inside distroless target
-                         images.  Once the cinc-auditor image is publicly
-                         available it can be used here to reduce the number
-                         of image dependencies.
+                         (default: cgr.dev/chainguard/busybox-static:latest).
+                         The binary must be statically linked to run inside
+                         distroless target images.
   BUSYBOX_BINARY_PATH    Path of the busybox binary inside BUSYBOX_SOURCE_IMAGE
-                         (default: /bin/busybox)
+                         (default: /usr/bin/busybox)
 
 Note: Uses the docker:// cinc-auditor transport.  The target container is
       started with busybox bind-mounted at /bin/sh, /usr/bin/cat,
@@ -206,6 +203,11 @@ cinc_run_docker_transport() {
 
     echo "Running Cinc Auditor (docker:// transport)..."
     set +e
+    # The bind-mounted Docker socket is root-equivalent on the host and is
+    # inherent to the docker:// transport (the auditor drives Docker to reach
+    # the target). --privileged here is a blanket grant beyond what the socket
+    # transport needs; narrowing it is a tracked follow-up. See the README
+    # "Required privileges".
     local auditor_args=(
         --rm
         --privileged

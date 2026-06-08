@@ -19,8 +19,9 @@
 #
 # Starts the target container and runs cinc-auditor with --pid=host, passing
 # /proc/<PID>/root as the rootfs input.  All filesystem access happens inside
-# the cinc-auditor container, so this approach works on Linux, macOS, and
-# Windows (Docker Desktop): no host-side overlay2 path is ever referenced.
+# the cinc-auditor container, so this approach needs no host-side overlay2 path
+# (unlike cinc-chainguard-overlay.sh).  Supported on Linux and macOS; Windows
+# (Docker Desktop) is untested.
 #
 # The AslrCheck control resolves ASLR via ${rootfs}/proc/sys/kernel/randomize_va_space,
 # which is accessible through the target container's mounted /proc, so no
@@ -29,6 +30,18 @@
 # Note: this script starts the container's actual workload.  Do not use with
 # images that have undesirable side-effects when run; use cinc-chainguard.sh
 # (filesystem extraction) for those instead.
+#
+# The target must stay running for the whole scan: its filesystem is read live
+# through /proc/<PID>/root.  The State.Pid check below only catches a container
+# that exits *before* it; a workload that exits *during* the scan (e.g. a
+# service that needs config/a backend to stay up) makes /proc/<PID>/root vanish
+# and every control then finds nothing.  Use one of the other approaches for
+# images that are not self-sustaining.  See the README "Required privileges".
+#
+# Privileges: the auditor runs --privileged --pid=host as uid 0 in the
+# container; under rootful Docker that is real host root (so a non-root invoker
+# in the docker group works), under rootless Docker it requires real root to
+# read another container's /proc/<PID>/root.
 
 set -euo pipefail
 

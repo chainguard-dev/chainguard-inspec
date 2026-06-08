@@ -208,6 +208,13 @@ cinc_run_auditor() {
 
     echo "Running Cinc Auditor..."
     set +e
+    # --user 0:0 lets the auditor read every file in the target regardless of
+    # owner/mode. --privileged is a blanket grant (all capabilities, device
+    # access, relaxed seccomp/AppArmor) that is broader than the read-only
+    # bind-mount scans strictly need; live mode does need host /proc access
+    # (--pid=host, added by the caller). Narrowing this to the specific
+    # capabilities each mode requires is a tracked follow-up. See the README
+    # "Required privileges".
     local auditor_args=(
         --rm
         --privileged
