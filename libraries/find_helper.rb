@@ -69,7 +69,27 @@ module ::FindHelper
       return %(#{hidden_shell} -c 'exec -a find "$0" "$@"' #{hidden_shell})
     end
 
-    nil
+    # Tier 4: a real `find` resolvable on PATH but not at FIND_PATHS (e.g.
+    # /usr/local/bin/find, or a Nix profile). Reached only after the busybox
+    # tiers miss, so the shell running the probe is either a real /bin/sh
+    # (`command -v find` prints the path) or a busybox without the find applet
+    # (`command -v find` exits non-zero -> nil, the correct outcome). It can
+    # therefore never perturb the docker:// busybox scan, which Tier 3 owns.
+    find_on_path(context)
+  end
+
+  # The absolute path of a `find` resolvable on the target's PATH, or nil.
+  # Uses the POSIX `command -v` builtin (no external binary required). We only
+  # accept an absolute path: a successful probe at the Tier 4 call site implies
+  # a real (non-busybox) shell with a genuine find binary, so it returns a path;
+  # a bare name (shell builtin/applet) is rejected since a real find applet
+  # would already have been claimed by the busybox tiers.
+  def self.find_on_path(context)
+    result = context.command('command -v find')
+    return nil unless result.exit_status.to_i.zero?
+
+    path = result.stdout.to_s.strip
+    path.start_with?('/') ? path : nil
   end
 
   # Determine whether a shell at one of SHELL_PATHS is actually
