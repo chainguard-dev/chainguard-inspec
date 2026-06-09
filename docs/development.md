@@ -4,6 +4,29 @@ Contributor-facing documentation for working on the Chainguard GPOS InSpec
 profile. For consumer/usage instructions (requirements, running scans, coverage,
 caveats), see the top-level [`README.md`](../README.md).
 
+## Running the checks
+
+A `Makefile` wraps the same checks CI runs so they can be reproduced locally:
+
+```bash
+make          # (= make ci) every check CI runs: static checks + Docker-based control tests
+make fast     # static checks only (pre-commit hooks, actionlint, zizmor) — no Docker
+make help     # list all targets
+```
+
+Individual targets can be run on their own: `make pre-commit`, `make actionlint`,
+`make zizmor`, `make cinc-check`, `make tools-test`, `make controls`, and
+`make rubocop`. Notes:
+
+- `make controls` prefers a system `rspec` and falls back to `bundle exec rspec`.
+- Override the scanner image with `CINC_AUDITOR_IMAGE=… make ci` (defaults to the
+  public `cincproject/auditor:latest`, matching CI).
+- The Docker-based targets need Docker; the filesystem-ownership control specs
+  still require root / passwordless sudo (see [`testing.md`](testing.md)) and are
+  otherwise skipped.
+- Full `rubocop` (`make rubocop`) is **opt-in** and intentionally not part of
+  `make ci` — see [Pre-commit hooks](#pre-commit-hooks).
+
 ## Guidelines
 
 - **Control updates:** modify files under `controls/` and adjust
