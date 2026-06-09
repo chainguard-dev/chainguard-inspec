@@ -178,17 +178,9 @@ CONTAINER_ID="$(docker run -d \
     --entrypoint /bin/sh \
     "${IMAGE}" -c 'trap exit TERM INT; /usr/bin/sleep infinity & wait $!')"
 
-# Verify the container is still running
-if ! docker inspect "${CONTAINER_ID}" --format '{{.State.Running}}' \
-        2>/dev/null | grep -q "^true$"; then
-    EXIT_CODE="$(docker inspect "${CONTAINER_ID}" \
-        --format '{{.State.ExitCode}}' 2>/dev/null || echo 'unknown')"
-    echo "Error: target container exited immediately after starting (exit code: ${EXIT_CODE})." >&2
-    echo "       Container logs:" >&2
-    docker logs "${CONTAINER_ID}" 2>&1 | sed 's/^/       /' >&2
-    echo "       Check that the image accepts the busybox bind mounts." >&2
-    exit 1
-fi
+# Verify the keep-alive container actually started (docker:// execs into it).
+cinc_require_target_running "${CONTAINER_ID}" "after startup" \
+    "Check that the image accepts the busybox bind mounts." || exit 1
 
 echo "Target container: ${CONTAINER_ID}"
 

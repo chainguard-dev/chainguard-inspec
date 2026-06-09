@@ -32,11 +32,13 @@
 # (filesystem extraction) for those instead.
 #
 # The target must stay running for the whole scan: its filesystem is read live
-# through /proc/<PID>/root.  The State.Pid check below only catches a container
-# that exits *before* it; a workload that exits *during* the scan (e.g. a
-# service that needs config/a backend to stay up) makes /proc/<PID>/root vanish
-# and every control then finds nothing.  Use one of the other approaches for
-# images that are not self-sustaining.  See the README "Required privileges".
+# through /proc/<PID>/root.  A workload that exits (e.g. a service that needs
+# config/a backend to stay up) makes /proc/<PID>/root vanish and every control
+# then finds nothing, so the script verifies the container is still running
+# after a brief startup settle and again after the scan, aborting with an
+# actionable error rather than reporting empty results.  Use one of the other
+# approaches for images that are not self-sustaining.  See the README
+# "Required privileges".
 #
 # Privileges: the auditor runs --privileged --pid=host as uid 0 in the
 # container; under rootful Docker that is real host root (so a non-root invoker
@@ -76,8 +78,9 @@ Note: This script starts the container's actual workload.  Do not use with
       images that have undesirable side-effects when run; use
       cinc-chainguard.sh (filesystem extraction) for those instead.
 
-      Works on Linux, macOS, and Windows: all filesystem access happens inside
-      the cinc-auditor container, so no host-side overlay2 path is required.
+      Supported on Linux and macOS (Windows/Docker Desktop untested): all
+      filesystem access happens inside the cinc-auditor container, so no
+      host-side overlay2 path is required.
 
       For private Chainguard images, run 'chainctl auth configure-docker'
       before invoking this script.
@@ -139,11 +142,24 @@ fi
 
 echo "Target container PID: ${TARGET_PID}"
 
+# Guidance shown if the target is not running at either checkpoint below.
+TARGET_RUNNING_HINT="Use one of the other approaches (cinc-chainguard.sh / overlay / docker-transport) for short-lived or non-self-sustaining images."
+
+# Give the workload a moment to settle, then confirm it is still up before
+# spending a full scan on a target that was never going to stay alive (e.g. a
+# service that needs config or a backend).  Override the settle with
+# CINC_LIVE_SETTLE_SECONDS (0 disables the wait).
+sleep "${CINC_LIVE_SETTLE_SECONDS:-3}"
+cinc_require_target_running "${CONTAINER_ID}" "after startup" "${TARGET_RUNNING_HINT}" || exit 1
+
 EXTRA_AUDITOR_ARGS+=(--pid=host)
 ROOTFS_MOUNT=""
 ROOTFS_CONTAINER_PATH="/proc/${TARGET_PID}/root"
 
 cinc_run_auditor
+# If the workload exited during the scan, /proc/<PID>/root vanished and the
+# results are unreliable; fail clearly instead of reporting empty findings.
+cinc_require_target_running "${CONTAINER_ID}" "after the scan" "${TARGET_RUNNING_HINT}" || exit 1
 cinc_check_exit_code
 cinc_check_json_output
 cinc_generate_html_report
