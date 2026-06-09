@@ -102,6 +102,14 @@ RSpec.describe FindHelper do
         ctx = context_double(files: { '/usr/bin/busybox' => true, '/bin/busybox' => true })
         expect(FindHelper.find_command(ctx)).to eq('/usr/bin/busybox find')
       end
+
+      it 'short-circuits at Tier 2 without probing any shell (Tier 2 beats Tier 3)' do
+        # A busybox binary AND a /bin/sh are both present; Tier 2 must win and
+        # return before any shell-detection command() is ever issued.
+        ctx = context_double(files: { '/usr/bin/busybox' => true, '/bin/sh' => true })
+        expect(ctx).not_to receive(:command)
+        expect(FindHelper.find_command(ctx)).to eq('/usr/bin/busybox find')
+      end
     end
 
     context 'Tier 3: no real find, no busybox binary, a hidden busybox shell' do
@@ -157,6 +165,42 @@ RSpec.describe FindHelper do
     context 'nothing usable is present' do
       it 'returns nil' do
         expect(FindHelper.find_command(context_double)).to be_nil
+      end
+    end
+
+    context 'Tier 4: no find at FIND_PATHS, no busybox, but find is on PATH' do
+      it 'returns the absolute path reported by `command -v find`' do
+        ctx = context_double(
+          commands: { 'command -v find' => { stdout: "/usr/local/bin/find\n", exit_status: 0 } }
+        )
+        expect(FindHelper.find_command(ctx)).to eq('/usr/local/bin/find')
+      end
+
+      it 'returns nil when `command -v find` fails (busybox without the find applet: exit 127)' do
+        ctx = context_double(
+          commands: { 'command -v find' => { stdout: '', exit_status: 127 } }
+        )
+        expect(FindHelper.find_command(ctx)).to be_nil
+      end
+    end
+
+    context 'earlier tiers short-circuit before the PATH probe' do
+      it 'runs no command at all when Tier 1 resolves' do
+        ctx = context_double(files: { '/usr/bin/find' => true })
+        expect(ctx).not_to receive(:command)
+        expect(FindHelper.find_command(ctx)).to eq('/usr/bin/find')
+      end
+
+      it 'never probes `command -v find` once Tier 3 resolves' do
+        ctx = context_double(
+          files: { '/bin/sh' => true },
+          commands: {
+            help_command('/bin/sh') => { stdout: busybox_help },
+            list_command('/bin/sh') => { stdout: applet_list_with_find, exit_status: 0 }
+          }
+        )
+        expect(ctx).not_to receive(:command).with('command -v find')
+        expect(FindHelper.find_command(ctx)).to eq(find_invocation('/bin/sh'))
       end
     end
   end
@@ -254,6 +298,41 @@ RSpec.describe FindHelper do
         commands: { list_command('/bin/sh') => { stdout: "ash\n   find  \nls\n", exit_status: 0 } }
       )
       expect(FindHelper.busybox_shell_has_find?(ctx, '/bin/sh')).to be true
+    end
+
+    it 'requires an exact applet line, not a substring (rejects findfs/findmnt decoys)' do
+      # Real busybox ships `find` AND separate `findfs`/`findmnt` applets. A
+      # substring match would wrongly accept a busybox that has findfs but not
+      # find, then build an invocation against the wrong applet. The match must
+      # be on the whole (stripped) line.
+      ctx = context_double(
+        commands: { list_command('/bin/sh') => { stdout: "ash\nfindfs\nfindmnt\nls\nsh\n", exit_status: 0 } }
+      )
+      expect(FindHelper.busybox_shell_has_find?(ctx, '/bin/sh')).to be false
+    end
+  end
+
+  describe '.find_on_path' do
+    it 'returns the absolute path when `command -v find` succeeds' do
+      ctx = context_double(
+        commands: { 'command -v find' => { stdout: "/usr/local/bin/find\n", exit_status: 0 } }
+      )
+      expect(FindHelper.find_on_path(ctx)).to eq('/usr/local/bin/find')
+    end
+
+    it 'returns nil when `command -v find` exits non-zero (no find, or no shell)' do
+      ctx = context_double(
+        commands: { 'command -v find' => { stdout: '', exit_status: 127 } }
+      )
+      expect(FindHelper.find_on_path(ctx)).to be_nil
+    end
+
+    it 'returns nil when the output is not an absolute path (e.g. a builtin/applet name)' do
+      # Some shells print a bare name for a non-binary; we require a real path.
+      ctx = context_double(
+        commands: { 'command -v find' => { stdout: "find\n", exit_status: 0 } }
+      )
+      expect(FindHelper.find_on_path(ctx)).to be_nil
     end
   end
 end
