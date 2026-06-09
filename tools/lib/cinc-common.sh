@@ -188,6 +188,36 @@ cinc_capture_aslr() {
     fi
 }
 
+# Verify a target container is still running. Scan modes that read a *live*
+# container depend on this: the live scan reads /proc/<PID>/root (the PID must
+# be alive) and the docker:// transport execs into the container (it must be
+# running). A target that has exited yields empty/unreliable results, so abort
+# with an actionable error instead. (Modes that read a static snapshot —
+# cinc-chainguard.sh's `docker export`, or the overlay merged dir, which stays
+# mounted until `docker rm` — do not need this.)
+#
+# $1 = container id
+# $2 = phase label for the message (e.g. "after startup", "after the scan")
+# $3 = optional hint line with mode-specific guidance
+# Returns 0 if running, 1 (after printing guidance to stderr) otherwise.
+cinc_require_target_running() {
+    local container_id="$1" phase="$2" hint="${3:-}"
+    local running
+    running="$(docker inspect --format '{{.State.Running}}' "${container_id}" 2>/dev/null || echo false)"
+    [ "${running}" = "true" ] && return 0
+
+    local status exit_code
+    status="$(docker inspect --format '{{.State.Status}}' "${container_id}" 2>/dev/null || echo unknown)"
+    exit_code="$(docker inspect --format '{{.State.ExitCode}}' "${container_id}" 2>/dev/null || echo unknown)"
+    {
+        echo "Error: target container ${container_id} is not running (${phase}); status=${status}, exit code=${exit_code}."
+        echo "       Container logs:"
+        docker logs "${container_id}" 2>&1 | tail -n 10 | sed 's/^/       /'
+        [ -n "${hint}" ] && echo "       ${hint}"
+    } >&2
+    return 1
+}
+
 # ---------------------------------------------------------------------------
 # Cinc Auditor execution
 # ---------------------------------------------------------------------------
