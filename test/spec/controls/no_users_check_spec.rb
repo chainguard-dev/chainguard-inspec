@@ -84,6 +84,31 @@ RSpec.describe 'oval:org.NoUsers:def:1' do
     end
   end
 
+  # When apko.json is present, an account after nobody is accepted only if its
+  # uid matches the apko-declared uid OR it uses an allowed (nologin) shell.
+  # Here builduser is declared in apko.json but with a DIFFERENT uid than the
+  # passwd entry, and its shell is /bin/bash (not an allowed shell), so neither
+  # acceptance clause applies and the account must be flagged. /bin/bash is
+  # deliberate: an allowed shell would be accepted regardless of the uid, masking
+  # the uid-mismatch branch under test.
+  context 'when an apko-declared user appears with a UID that does not match apko.json' do
+    before do
+      File.write(File.join(etc_dir, 'passwd'), <<~PASSWD)
+        root:x:0:0:root:/root:/sbin/nologin
+        nobody:x:65534:65534:nobody:/:/sbin/nologin
+        builduser:x:9999:9999:Build User:/home/builduser:/bin/bash
+      PASSWD
+      write_shadow('root', 'nobody', 'builduser')
+      File.write(File.join(etc_dir, 'apko.json'), JSON.generate(
+        'accounts' => { 'users' => [{ 'username' => 'builduser', 'uid' => 1001 }] }
+      ))
+    end
+
+    it 'fails' do
+      expect(run_control('oval:org.NoUsers:def:1', rootfs: rootfs)).to be_failing
+    end
+  end
+
   # A structurally malformed /etc/passwd entry (wrong field count) must be a
   # failing finding, not silently dropped: a truncated line such as
   # "evil:x:0:0" has < 7 fields, so the previous `next unless parts.length >= 7`
@@ -120,6 +145,17 @@ RSpec.describe 'oval:org.NoUsers:def:1' do
 
     it 'passes' do
       expect(run_control('oval:org.NoUsers:def:1', rootfs: rootfs)).to be_passing
+    end
+  end
+
+  # /etc/passwd absent: the control asserts the passwd file `should exist`, so an
+  # absent file must be a finding (be_failing). Shadow is written so that passwd
+  # is the only thing missing, isolating this to the passwd-existence path.
+  context 'when /etc/passwd is absent' do
+    before { write_shadow('root', 'nobody') }
+
+    it 'fails' do
+      expect(run_control('oval:org.NoUsers:def:1', rootfs: rootfs)).to be_failing
     end
   end
 end

@@ -76,4 +76,31 @@ RSpec.describe 'oval:org.LibraryPermissions:def:2' do
       expect(result).to be_failing
     end
   end
+
+  # /usr/lib absent: the control asserts the directory `should exist`, so an
+  # absent path must be a finding. The file enumeration is guarded by
+  # `if lib_dir.exist?`, so it stays clean (no find against a missing dir). The
+  # top-level before mkdir_p's the dir, so this context removes it. No root/sudo
+  # needed — the existence assertion fails before any ownership check.
+  context 'when /usr/lib is absent' do
+    before { FileUtils.rm_rf(usr_lib_path) }
+
+    it 'fails' do
+      expect(run_control('oval:org.LibraryPermissions:def:2', rootfs: rootfs)).to be_failing
+    end
+  end
+
+  # /usr/lib present but empty: find returns no entries, so the only assertion is
+  # the evidence "scanned 0 file(s)" (entries.length >= 0) and the control passes
+  # vacuously — there are no files to check ownership of. This is locked in
+  # deliberately: it documents the legitimate empty-dir pass so a future
+  # regression where find silently returns nothing (and thus skips all ownership
+  # checks) is distinguishable from this intended behavior, rather than reading
+  # as an accidental all-clear. No root/sudo needed. The top-level before already
+  # mkdir_p's an empty usr/lib; this context just adds no lib files.
+  context 'when /usr/lib exists but is empty' do
+    it 'passes' do
+      expect(run_control('oval:org.LibraryPermissions:def:2', rootfs: rootfs)).to be_passing
+    end
+  end
 end

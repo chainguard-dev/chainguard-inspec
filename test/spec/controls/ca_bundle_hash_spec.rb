@@ -50,4 +50,17 @@ RSpec.describe 'oval:org.CABundleHash:def:1' do
       expect(result).to be_failing
     end
   end
+
+  # The CA bundle path exists but is a directory, not a file. The control asserts
+  # both `should exist` (a directory satisfies this) and `should be_file` (it does
+  # not), so this exercises the be_file branch distinctly from the absent case.
+  context 'when the CA bundle path is a directory instead of a file' do
+    before { FileUtils.mkdir_p(bundle_path) }
+
+    it 'fails' do
+      result = run_control('oval:org.CABundleHash:def:1', rootfs: rootfs,
+                           expected_cacert_hash: bundle_hash)
+      expect(result).to be_failing
+    end
+  end
 end
