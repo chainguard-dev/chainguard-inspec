@@ -57,9 +57,19 @@ control 'oval:org.example:def:3' do
   shadow_path = File.join(rootfs, 'etc/shadow')
   shadow_resource = shadow(shadow_path)
 
-  describe shadow_resource do
-    it { should exist }
-  end
+  # No /etc/shadow existence assertion here, by design: this is a pure
+  # password-content check. The upstream SCAP rules use check_existence=
+  # "none_exist" (Chainguard SSG oval:org.example:def:3 and ComplianceAsCode
+  # no_empty_passwords_etc_shadow), so an absent /etc/shadow scores compliant —
+  # there are no passwords to check. Verified with oscap (OSCAP_PROBE_ROOT). The
+  # existence of /etc/shadow is owned by NoUsersCheck.rb (which requires it via
+  # file()), so we do not duplicate that here.
+  #
+  # NB: do NOT write `describe shadow(shadow_path) { should exist }` to add an
+  # existence check — the FilterTable `shadow` resource's #exist? returns a
+  # truthy FilterTable::ExceptionCatcher on a missing file, so that assertion can
+  # never fail. If an existence check is ever wanted, use file(). See
+  # docs/testing.md "FilterTable resources can't assert file existence".
 
   # Structural validity of /etc/shadow: every non-blank entry must have exactly
   # 9 colon-separated fields. The InSpec `shadow` resource parses positionally

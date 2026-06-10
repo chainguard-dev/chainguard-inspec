@@ -98,7 +98,12 @@ control 'oval:org.NoUsers:def:1' do
     user&.dig('uid')&.to_s
   end
 
-  passwd_lines = passwd_resource.content.split("\n")
+  # content.to_s guards against an absent /etc/passwd (file().content is nil),
+  # which would otherwise raise `undefined method 'split' for nil` and surface as
+  # an alarming "Control Source Code Error" backtrace. The file()-existence
+  # assertion above already fails on an absent file, so absent passwd stays a
+  # clean finding. Mirrors UserPasswordConfiguredTest.rb's shadow handling.
+  passwd_lines = passwd_resource.content.to_s.split("\n")
 
   # Structural validity of /etc/passwd: every non-blank entry must have exactly
   # 7 colon-separated fields. A malformed (e.g. truncated) line means we cannot
