@@ -93,6 +93,59 @@ Implications:
 
 Upstream issue: [inspec/inspec#7934](https://github.com/inspec/inspec/issues/7934).
 
+## FilterTable resources can't assert file existence with `should exist`
+
+When a control needs to require that a file is present, assert it through the
+`file` resource, **not** through a FilterTable-based resource such as `shadow`,
+`passwd`, `csv`, or `json`:
+
+```ruby
+# WRONG — passes even when /etc/shadow is absent (see below)
+describe shadow(shadow_path) do
+  it { should exist }
+end
+
+# RIGHT — file().exist? is a real boolean
+describe file(shadow_path) do
+  it { should exist }
+end
+```
+
+> **Gotcha — `describe shadow(path) { should exist }` cannot fail on a missing
+> file.** FilterTable resources have no `exist?` of their own; FilterTable
+> synthesizes one as `!table.raw_data.empty?` and installs it wrapped in
+> `rescue ResourceFailed, ResourceSkipped => e; FilterTable::ExceptionCatcher.new(...)`
+> (`inspec/utils/filter.rb`). Computing `raw_data` reads the file via
+> `FileReader#read_file_content`, which raises `ResourceSkipped` ("Can't find
+> file") for an absent path. That skip is caught, so `shadow(path).exist?`
+> returns a **truthy `FilterTable::ExceptionCatcher` object**, not `false` — and
+> RSpec's `exist` matcher only checks the truthiness of `.exist?`. So the
+> assertion **passes** on a missing file (and, perversely, *fails* on a
+> present-but-empty one, where `raw_data` is genuinely empty). `file(path).exist?`
+> returns a real boolean and behaves correctly. Verified against cinc-auditor /
+> inspec-core 7.1.7.
+
+This bit `UserPasswordConfiguredTest`, which had a `describe shadow(path) {
+should exist }` that silently never fired. The resolution split the two
+concerns the way the upstream SCAP content does:
+
+- **Existence** is owned by `NoUsersCheck`, which requires `/etc/shadow` and
+  `/etc/passwd` via the `file()` resource (real boolean `exist?`). A missing
+  file is a finding there.
+- **Password content** is a pure check in `UserPasswordConfiguredTest` with **no
+  existence assertion at all**. The upstream rules (Chainguard SSG
+  `oval:org.example:def:3`, ComplianceAsCode `no_empty_passwords_etc_shadow`) use
+  OVAL `check_existence="none_exist"`, so an absent `/etc/shadow` scores
+  compliant — verified with `oscap` (`OSCAP_PROBE_ROOT=<rootfs> oscap oval eval
+  --id <def> <component>.xml`). We match that: absent `/etc/shadow` passes the
+  content control vacuously.
+
+Rule of thumb: if a control genuinely needs to assert a file exists, use
+`file(path)`, never a FilterTable resource. But first consider whether existence
+is that control's responsibility at all — for content checks, upstream's
+`none_exist` convention is "absent file ⇒ compliant," with existence enforced by
+a separate rule.
+
 ## Running locally with system rspec + the private cinc-auditor image
 
 Common developer setup: system-installed `rspec`, Docker present, and no
