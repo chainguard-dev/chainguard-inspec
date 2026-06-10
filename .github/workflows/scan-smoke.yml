@@ -1,0 +1,64 @@
+name: Scan Smoke
+
+# End-to-end smoke test for the scan scripts that the fast control-tests job
+# cannot cover: the docker:// transport, which is the only mode that exercises
+# FindHelper's busybox tiers (Tier 3) against a distroless target. It is heavier
+# (pulls images, starts containers) and depends on floating :latest images, so
+# it runs on a weekly schedule — to catch an upstream busybox/auditor image
+# regressing the scan independent of repo changes — plus on demand and on PRs
+# that touch the find logic or the scan tooling.
+on:
+  workflow_dispatch:
+  schedule:
+    # Weekly, Mondays 07:17 UTC. Catches floating-:latest image regressions
+    # (the same class of failure as the cinc-auditor 7.x control-discovery break).
+    - cron: '17 7 * * 1'
+  pull_request:
+    paths:
+      - 'libraries/find_helper.rb'
+      - 'tools/**'
+      - 'test/spec/integration/**'
+      - '.github/workflows/scan-smoke.yml'
+
+permissions: {}
+
+jobs:
+  docker-transport:
+    if: ${{ github.repository == 'chainguard-dev/chainguard-inspec' }}
+    runs-on: ubuntu-latest
+    # Needs the Docker socket (docker:// transport) and Ruby — for rspec and for
+    # the HTML report generator, which runs with host Ruby under --use-local-profile.
+    permissions:
+      contents: read
+    env:
+      CINC_AUDITOR_IMAGE: cincproject/auditor:latest
+      RUN_SCAN_SMOKE: '1'
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - uses: ruby/setup-ruby@afeafc3d1ab54a631816aba4c914a0081c12ff2f # v1.310.0
+        with:
+          working-directory: test
+          bundler-cache: true
+          ruby-version: '3.4'
+
+      - name: Install rexml (host gem for the HTML report generator)
+        # The scan script's --use-local-profile HTML step runs plain host `ruby`
+        # and requires rexml (via libraries/stig_mappings.rb). Ruby 3.4 dropped
+        # rexml from its default gems, so install it globally. (Tracked upstream
+        # as a scan-tooling robustness gap.)
+        run: gem install --no-document rexml
+
+      - name: Docker-transport Tier 3 scan smoke (rspec integration)
+        # Drives tools/cinc-chainguard-docker-transport.sh against a distroless
+        # target and asserts (via InspecResult matchers) that the busybox find
+        # path discovered files and the scan verdicts are correct.
+        working-directory: test
+        run: bundle exec rspec spec/integration
