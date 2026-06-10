@@ -34,4 +34,16 @@ RSpec.describe 'oval:org.varlog:def:2' do
       expect(run_control('oval:org.varlog:def:2', rootfs: rootfs)).to be_failing
     end
   end
+
+  # /var/log absent: the control asserts the directory `should exist`, so an
+  # absent path must be a finding. The top-level before mkdir_p's it, so this
+  # context removes it. No root/sudo needed — the existence assertion fails
+  # before any owner/group/mode check.
+  context 'when /var/log is absent' do
+    before { FileUtils.rm_rf(var_log_path) }
+
+    it 'fails' do
+      expect(run_control('oval:org.varlog:def:2', rootfs: rootfs)).to be_failing
+    end
+  end
 end
