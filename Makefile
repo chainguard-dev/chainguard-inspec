@@ -24,7 +24,7 @@ WORKFLOWS := $(shell find .github/workflows -name '*.y*ml' 2>/dev/null | grep -v
 
 .DEFAULT_GOAL := ci
 
-.PHONY: ci fast lint test pre-commit actionlint zizmor rubocop cinc-check tools-test controls help
+.PHONY: ci fast lint test pre-commit actionlint zizmor rubocop cinc-check tools-test controls scan-smoke help
 
 ci: lint test ## Run every check CI runs (default)
 
@@ -46,18 +46,30 @@ rubocop: ## Full rubocop style review (opt-in; not a CI gate)
 
 test: cinc-check tools-test controls ## Docker-based Control Tests (mirrors control-tests.yml)
 
-cinc-check: ## Validate a clean staged profile with cinc-auditor
-	@stage="$$(mktemp -d)"; \
-	trap 'rm -rf "$$stage"' EXIT; \
+cinc-check: ## Validate a clean staged profile (check + assert controls are discovered)
+	@stage="$$(mktemp -d)"; results="$$(mktemp -d)"; chmod 777 "$$results"; \
+	trap 'rm -rf "$$stage" "$$results"' EXIT; \
 	cp inspec.yml "$$stage/"; \
 	cp -a controls libraries "$$stage/"; \
-	docker run --rm --platform linux/amd64 -v "$$stage:/profile:ro" "$(CINC_AUDITOR_IMAGE)" check /profile
+	docker run --rm --platform linux/amd64 -v "$$stage:/profile:ro" "$(CINC_AUDITOR_IMAGE)" check /profile; \
+	docker run --rm --platform linux/amd64 -v "$$stage:/profile:ro" -v "$$results:/results:rw" \
+		"$(CINC_AUDITOR_IMAGE)" exec /profile --no-create-lockfile --reporter json:/results/out.json >/dev/null 2>&1 || true; \
+	n="$$(jq '.profiles[0].controls | length' "$$results/out.json" 2>/dev/null || echo 0)"; \
+	echo "Controls discovered by exec: $$n"; \
+	[ "$$n" -gt 0 ] || { echo "ERROR: profile exec discovered zero controls (inspec#7934 regression)"; exit 1; }
 
 tools-test: ## Run tools/ shell tests (test/tools/*_test.sh)
 	@shopt -s nullglob; \
 	tests=(test/tools/*_test.sh); \
 	if [ $${#tests[@]} -eq 0 ]; then echo "No tools shell tests found (test/tools/*_test.sh)"; exit 0; fi; \
 	for t in "$${tests[@]}"; do echo "== $$t =="; bash "$$t" || exit 1; done
+
+scan-smoke: ## Heavy docker:// scan smoke (Tier 3 find path); not part of `make ci`
+	@cd test && if command -v rspec >/dev/null 2>&1; then \
+		RUN_SCAN_SMOKE=1 rspec spec/integration; \
+	else \
+		RUN_SCAN_SMOKE=1 bundle exec rspec spec/integration; \
+	fi
 
 controls: ## InSpec control suite (prefers system rspec, falls back to bundled)
 	@cd test && if command -v rspec >/dev/null 2>&1; then \

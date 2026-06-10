@@ -48,17 +48,27 @@ jobs:
           bundler-cache: true
           ruby-version: '3.4' # Not needed with a .ruby-version, .tool-versions or mise.toml
 
-      - name: Validate profile (cinc-auditor check)
+      - name: Validate profile (cinc-auditor check + exec discovers controls)
         run: |
           # Validate a clean profile dir (inspec.yml + controls/ + libraries/),
           # not the repo root: cinc-auditor 7.x discovers no controls when the
           # profile path also contains non-profile trees such as test/vendor.
-          stage="$(mktemp -d)"
+          stage="$(mktemp -d)"; results="$(mktemp -d)"; chmod 777 "$results"
           cp "$GITHUB_WORKSPACE/inspec.yml" "$stage/"
           cp -a "$GITHUB_WORKSPACE/controls" "$GITHUB_WORKSPACE/libraries" "$stage/"
           docker run --rm --platform linux/amd64 \
             -v "$stage:/profile:ro" \
             "$CINC_AUDITOR_IMAGE" check /profile
+          # Beyond `check`: exec the profile and assert controls were actually
+          # discovered. A control-less profile (the inspec#7934 failure mode)
+          # passes `check` with only a warning, so `check` alone is not enough.
+          docker run --rm --platform linux/amd64 \
+            -v "$stage:/profile:ro" -v "$results:/results:rw" \
+            "$CINC_AUDITOR_IMAGE" exec /profile --no-create-lockfile \
+            --reporter json:/results/out.json >/dev/null 2>&1 || true
+          n="$(jq '.profiles[0].controls | length' "$results/out.json" 2>/dev/null || echo 0)"
+          echo "Controls discovered by exec: $n"
+          [ "$n" -gt 0 ] || { echo "ERROR: profile exec discovered zero controls (inspec#7934 regression)"; exit 1; }
 
       - name: Run control tests
         working-directory: test
