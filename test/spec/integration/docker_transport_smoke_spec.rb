@@ -30,7 +30,7 @@ RSpec.describe 'docker:// transport scan (FindHelper Tier 3)', :scan_smoke do
   # with /usr/lib libraries to discover; and NON-FIPS so the FIPS control fails.
   let(:target)        { ENV['SCAN_SMOKE_IMAGE'] || 'cgr.dev/chainguard/glibc-dynamic:latest' }
   let(:auditor_image) { ENV['CINC_AUDITOR_IMAGE'] || 'cincproject/auditor:latest' }
-  let(:script) { File.expand_path('../../../tools/cinc-chainguard-docker-transport.sh', __dir__) }
+  let(:script) { scan_script('cinc-chainguard-docker-transport.sh') }
 
   before do
     skip 'set RUN_SCAN_SMOKE=1 to run the docker:// scan smoke (heavy)' unless ENV['RUN_SCAN_SMOKE'] == '1'
@@ -41,15 +41,19 @@ RSpec.describe 'docker:// transport scan (FindHelper Tier 3)', :scan_smoke do
     require_tier3_target!(target)
 
     Dir.mktmpdir do |results_dir|
-      run_docker_transport_scan(target, results_dir)
+      # --use-local-profile mounts the repo profile (the public auditor image has
+      # none embedded). The script exits 0 on a completed scan even when controls
+      # fail; a non-zero exit is a hard error (profile/container failure).
+      out, status = run_scan_script(script, '--use-local-profile', target, 'dev', results_dir,
+                                    env: { 'CINC_AUDITOR_IMAGE' => auditor_image })
+      expect(status.exitstatus).to eq(0), "scan script hard-errored (exit #{status.exitstatus}):\n#{out}"
 
-      json_path = Dir.glob(File.join(results_dir, '*.json')).first
+      json_path = scan_report(results_dir, 'json')
       expect(json_path).not_to be_nil, 'scan produced no JSON reporter'
       json = File.read(json_path)
 
       # Controls were discovered (profile resolution — the inspec#7934 guard).
-      controls = JSON.parse(json).dig('profiles', 0, 'controls') || []
-      expect(controls.length).to be > 0
+      expect(parsed_controls(json).length).to be > 0
 
       # Tier 3 positive: LibraryPermissions resolved find and enumerated /usr/lib.
       lib = 'oval:org.LibraryPermissions:def:2'
@@ -63,13 +67,13 @@ RSpec.describe 'docker:// transport scan (FindHelper Tier 3)', :scan_smoke do
       expect(fips_failure_evidence?(ssl, json)).to be(true)
 
       # The scan deliverable: a non-trivial HTML report.
-      html_path = Dir.glob(File.join(results_dir, '*.html')).first
+      html_path = scan_report(results_dir, 'html')
       expect(html_path).not_to be_nil, 'scan produced no HTML report'
       expect(File.size(html_path)).to be > 1000
     end
   end
 
-  # --- helpers ---------------------------------------------------------------
+  # --- helpers (Tier-3-specific; shared helpers live in support/scan_smoke.rb) -
 
   # Skip (don't fail) unless `image` genuinely forces Tier 3: it must have no
   # `find`/busybox binary at a FindHelper FIND_PATHS/BUSYBOX_PATHS location, else
@@ -94,51 +98,5 @@ RSpec.describe 'docker:// transport scan (FindHelper Tier 3)', :scan_smoke do
     return if found.empty?
 
     skip "#{image} has #{found.join(', ')}; would resolve FindHelper Tier 1/2, not Tier 3"
-  end
-
-  # Run the docker-transport scan into results_dir. --use-local-profile mounts
-  # the repo profile (the public auditor image has none embedded). The script
-  # exits 0 on a completed scan even when controls fail; a non-zero exit is a
-  # hard error (profile/container failure), which we surface with the log.
-  def run_docker_transport_scan(image, results_dir)
-    env = { 'CINC_AUDITOR_IMAGE' => auditor_image }
-    cmd = ['bash', script, '--use-local-profile', image, 'dev', results_dir]
-    # The script's HTML step runs plain host `ruby`. Run it OUTSIDE this
-    # process's bundler context so it behaves like a real user invocation
-    # (global gems) instead of inheriting bundle exec's RUBYOPT/BUNDLE_GEMFILE
-    # and being restricted to the test Gemfile (which lacks the report
-    # generator's deps, e.g. rexml on Ruby 3.4+).
-    out, status =
-      if defined?(Bundler)
-        Bundler.with_unbundled_env { Open3.capture2e(env, *cmd) }
-      else
-        Open3.capture2e(env, *cmd)
-      end
-    expect(status.exitstatus).to eq(0), "scan script hard-errored (exit #{status.exitstatus}):\n#{out}"
-  end
-
-  # Evaluate one control's aggregate status from the full-profile JSON, reusing
-  # the harness's InspecResult + be_passing/be_failing matchers.
-  def control_result(id, json)
-    InspecResult.new(id, json, '', '')
-  end
-
-  # The integer N from LibraryPermissions' "scanned N file(s)..." evidence, or nil.
-  def scanned_count(id, json)
-    desc = control_descs(id, json).find { |d| d =~ /scanned \d+/ }
-    desc && desc[/scanned (\d+)/, 1].to_i
-  end
-
-  # True if `id` has a failed result mentioning the FIPS material find looks for.
-  def fips_failure_evidence?(id, json)
-    ctrl = JSON.parse(json).dig('profiles', 0, 'controls')&.find { |c| c['id'] == id }
-    (ctrl&.fetch('results', []) || []).any? do |r|
-      r['status'] == 'failed' && r['code_desc'].to_s =~ /FIPS module|openssl-provider-fips/i
-    end
-  end
-
-  def control_descs(id, json)
-    ctrl = JSON.parse(json).dig('profiles', 0, 'controls')&.find { |c| c['id'] == id }
-    (ctrl&.fetch('results', []) || []).map { |r| r['code_desc'] }.compact
   end
 end

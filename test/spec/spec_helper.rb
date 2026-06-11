@@ -1,10 +1,12 @@
 require 'shellwords'
 require_relative 'support/inspec_runner'
 require_relative 'support/fixture_helpers'
+require_relative 'support/scan_smoke'
 
 RSpec.configure do |config|
   config.include InspecHelpers
   config.include FixtureHelpers
+  config.include ScanSmokeHelpers
 
   # Use expect syntax only
   config.expect_with :rspec do |expectations|
