@@ -54,6 +54,15 @@ EXTRA_AUDITOR_ARGS=()
 # Additional arguments passed to cinc-auditor exec (e.g. --input key=value).
 # Append before calling cinc_run_auditor.
 EXTRA_INSPEC_ARGS=()
+# Host path to an InSpec input file (YAML) used to override inspec.yml defaults.
+# Set via the scan scripts' --input-file flag (see cinc_set_input_file). When
+# set, the runners bind-mount it read-only into the auditor container and pass
+# --input-file with the container path — the host path is meaningless inside the
+# container, which is why stuffing "--input-file <host-path>" into
+# EXTRA_INSPEC_ARGS does NOT work. Empty = no input file.
+INPUT_FILE=""
+# Fixed path the input file is mounted at inside the auditor container.
+INPUT_FILE_CONTAINER="/cinc-input-overrides.yml"
 # Path to the rootfs inside the cinc-auditor container.  Defaults to /rootfs
 # for bind-mount-based scripts.  Override (e.g. /proc/<PID>/root) for scripts
 # that access the filesystem via --pid=host without a bind mount.
@@ -100,6 +109,24 @@ cinc_parse_positional_args() {
     IMAGE="$1"
     LABEL="${2:-dev}"
     RESULTS_DIR_INPUT="${3:-./results}"
+}
+
+# Validate and record the --input-file path. Resolves it to an absolute path
+# (bind mounts require one) and stores it in INPUT_FILE; the runners then mount
+# it into the auditor container and pass --input-file. Returns 1 (with a
+# message) if the path is missing or not a regular file, so callers can print
+# usage and exit.
+cinc_set_input_file() {
+    local f="$1"
+    if [ -z "$f" ]; then
+        echo "Error: --input-file requires a path" >&2
+        return 1
+    fi
+    if [ ! -f "$f" ]; then
+        echo "Error: --input-file '$f' is not a readable file" >&2
+        return 1
+    fi
+    INPUT_FILE="$(cd "$(dirname "$f")" && pwd)/$(basename "$f")"
 }
 
 # ---------------------------------------------------------------------------
@@ -287,12 +314,22 @@ cinc_run_auditor() {
         auditor_args+=("${EXTRA_AUDITOR_ARGS[@]}")
     fi
 
+    # Bind-mount the input-override file into the auditor container so
+    # --input-file can resolve it (the host path is not visible in-container).
+    if [ -n "${INPUT_FILE}" ]; then
+        auditor_args+=(-v "${INPUT_FILE}:${INPUT_FILE_CONTAINER}:ro")
+    fi
+
     local inspec_args=(
         --no-create-lockfile
         --reporter cli
         --reporter "json:/results/${inspec_json_basename}"
         --input "rootfs=${rootfs_path}"
     )
+
+    if [ -n "${INPUT_FILE}" ]; then
+        inspec_args+=(--input-file "${INPUT_FILE_CONTAINER}")
+    fi
 
     if [ "${#EXTRA_INSPEC_ARGS[@]}" -gt 0 ]; then
         inspec_args+=("${EXTRA_INSPEC_ARGS[@]}")

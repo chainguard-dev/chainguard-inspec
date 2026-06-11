@@ -48,6 +48,9 @@ and pass it to a scan:
 cinc-auditor exec <profile> --input-file my-inputs.yml --input rootfs=<path>
 ```
 
+When using the [scan scripts](#scan-scripts), pass the same file with their
+`--input-file <path>` flag.
+
 Each list-valued input **replaces** its default rather than extending it, so
 keep the default entries you still want.
 
@@ -70,6 +73,12 @@ STIG rule identifiers, severities, and CCIs are defined through `tag` metadata w
 ## Scan Scripts
 
 All scripts accept `<image> [label] [results-dir]` as positional arguments and write JSON and HTML results to the results directory (default: `./results`). Each script sources `tools/lib/cinc-common.sh` for shared functionality. Pass `--use-local-profile` to bind-mount the local profile directory instead of using the embedded profile in the cinc-auditor image (developer mode).
+
+To override the profile's inputs, pass `--input-file <path>` (a YAML input file; see [`examples/inputs.yml`](examples/inputs.yml)). The file is bind-mounted into the auditor container, so it works across all four scan scripts regardless of transport:
+
+```bash
+./tools/cinc-chainguard-docker-transport.sh --input-file my-inputs.yml cgr.dev/chainguard/nginx:latest
+```
 
 | Script                                | Approach                  | Platform           |
 | ------------------------------------- | ------------------------- | ------------------ |
