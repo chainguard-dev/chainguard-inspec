@@ -44,6 +44,15 @@ module ScanSmokeHelpers
     JSON.parse(json).dig('profiles', 0, 'controls') || []
   end
 
+  # The *resolved* value of a profile input from the JSON reporter's
+  # profiles[0].attributes (nil if absent). cinc-auditor echoes the effective
+  # input value there after applying --input/--input-file, so this is a
+  # transport-independent way to prove an override actually reached the scan.
+  def resolved_input(name, json)
+    attr = (JSON.parse(json).dig('profiles', 0, 'attributes') || []).find { |a| a['name'] == name }
+    attr&.dig('options', 'value')
+  end
+
   # Evaluate one control's aggregate status from the full-profile JSON, reusing
   # the harness's InspecResult + be_passing/be_failing matchers.
   def control_result(id, json)

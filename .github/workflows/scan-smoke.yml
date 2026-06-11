@@ -9,9 +9,11 @@ name: Scan Smoke
 # busybox/auditor image regressing a scan independent of repo changes — plus on
 # demand and on PRs that touch the find logic or the scan tooling.
 #
-# One matrixed job per scan mode (all run identically: ubuntu-latest,
-# unprivileged, Docker socket + host Ruby for the --use-local-profile HTML
-# step); each mode's target image and assertions live in its spec.
+# One matrixed job per entry (all run identically: ubuntu-latest, unprivileged,
+# Docker socket + host Ruby for the --use-local-profile HTML step). Two kinds of
+# entry: a scan-mode smoke (does each mode work end-to-end?) and an input-file
+# override check (does --input-file reach the auditor for each script?). Each
+# entry's target image, selection, and assertions live in its spec.
 on:
   workflow_dispatch:
   schedule:
@@ -42,7 +44,10 @@ jobs:
       fail-fast: false
       matrix:
         # spec = the integration smoke; mode = a short label for the job name.
+        # override_script (override entries only) = the scan script the override
+        # spec should exercise, passed through SCAN_SMOKE_OVERRIDE_SCRIPT.
         include:
+          # -- scan-mode smokes: does each mode work end-to-end? --
           # docker:// transport — the only mode exercising FindHelper's busybox
           # Tier 3 against a distroless target.
           - mode: docker-transport
@@ -60,10 +65,28 @@ jobs:
           # target (which must stay up; the spec uses nginx).
           - mode: live
             spec: live_scan_smoke_spec.rb
+          # -- input-file override: does --input-file reach the auditor for each
+          #    script? One entry per script (each has its own --input-file arg
+          #    parser + bind mount); the spec selects it via the env below. --
+          - mode: override:filesystem
+            spec: input_file_override_smoke_spec.rb
+            override_script: cinc-chainguard.sh
+          - mode: override:docker-transport
+            spec: input_file_override_smoke_spec.rb
+            override_script: cinc-chainguard-docker-transport.sh
+          - mode: override:overlay
+            spec: input_file_override_smoke_spec.rb
+            override_script: cinc-chainguard-overlay.sh
+          - mode: override:live
+            spec: input_file_override_smoke_spec.rb
+            override_script: cinc-chainguard-live.sh
     name: scan-smoke (${{ matrix.mode }})
     env:
       CINC_AUDITOR_IMAGE: cincproject/auditor:latest
       RUN_SCAN_SMOKE: '1'
+      # Empty for scan-mode entries (those specs ignore it); set to the target
+      # script for override entries. Static workflow literal (no untrusted input).
+      SCAN_SMOKE_OVERRIDE_SCRIPT: ${{ matrix.override_script }}
     steps:
       - name: Harden Runner
         uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
@@ -88,9 +111,10 @@ jobs:
         run: gem install --no-document rexml
 
       - name: Scan smoke (${{ matrix.mode }})
-        # Drives the real tools/ scan script for this mode and asserts (via
-        # InspecResult matchers) that the pipeline discovered controls, find
-        # enumerated files, and the verdicts are correct. matrix.spec is a static
+        # Runs this entry's integration spec, which drives the real tools/ scan
+        # script(s) and asserts on the results (mode entries: controls
+        # discovered, find enumerated files, verdicts correct; override entries:
+        # the --input-file value reaches the auditor). matrix.spec is a static
         # workflow literal (no untrusted input).
         working-directory: test
         run: bundle exec rspec spec/integration/${{ matrix.spec }}
