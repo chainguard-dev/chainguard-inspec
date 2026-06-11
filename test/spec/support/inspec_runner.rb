@@ -51,12 +51,19 @@ class InspecRunner
   # at /fixture (docker) / used in place (direct); only the rootfs input value
   # gains the prefix, so a spec can create fixtures under e.g. "has space/" and
   # exercise paths the control must shell-escape. Default nil = rootfs at root.
-  def self.run(control_id, rootfs:, extra_inputs: {}, rootfs_prefix: nil)
+  # input_file is the absolute host path to an InSpec input file (YAML). When set
+  # it is passed via --input-file; in docker mode the file is also bind-mounted
+  # into the container at a fixed path (mirroring how the profile is mounted), so
+  # the same kwarg works across modes. This exercises the production --input-file
+  # override mechanism — e.g. dogfooding the shipped examples/inputs.yml.
+  def self.run(control_id, rootfs:, extra_inputs: {}, rootfs_prefix: nil, input_file: nil)
     case detect_mode
     when :direct
-      run_direct(control_id, rootfs: rootfs, extra_inputs: extra_inputs, rootfs_prefix: rootfs_prefix)
+      run_direct(control_id, rootfs: rootfs, extra_inputs: extra_inputs,
+                 rootfs_prefix: rootfs_prefix, input_file: input_file)
     when :docker
-      run_docker(control_id, rootfs: rootfs, extra_inputs: extra_inputs, rootfs_prefix: rootfs_prefix)
+      run_docker(control_id, rootfs: rootfs, extra_inputs: extra_inputs,
+                 rootfs_prefix: rootfs_prefix, input_file: input_file)
     end
   end
 
@@ -106,12 +113,13 @@ class InspecRunner
     ENV.fetch('DOCKER_CMD', 'docker').split
   end
 
-  def self.run_direct(control_id, rootfs:, extra_inputs:, rootfs_prefix: nil)
+  def self.run_direct(control_id, rootfs:, extra_inputs:, rootfs_prefix: nil, input_file: nil)
     tmpdir = Dir.mktmpdir
     begin
       json_path = File.join(tmpdir, 'result.json')
       cmd = build_direct_cmd(control_id, rootfs: rootfs, extra_inputs: extra_inputs,
-                             rootfs_prefix: rootfs_prefix, json_path: json_path)
+                             rootfs_prefix: rootfs_prefix, input_file: input_file,
+                             json_path: json_path)
       stdout, stderr, process_status = Open3.capture3(*cmd)
       json_content = File.exist?(json_path) ? File.read(json_path) : nil
       result = InspecResult.new(control_id, json_content, stdout, stderr,
@@ -123,12 +131,13 @@ class InspecRunner
     end
   end
 
-  def self.run_docker(control_id, rootfs:, extra_inputs:, rootfs_prefix: nil)
+  def self.run_docker(control_id, rootfs:, extra_inputs:, rootfs_prefix: nil, input_file: nil)
     results_dir = Dir.mktmpdir
     begin
       FileUtils.chmod(0o777, results_dir)
       cmd = build_docker_cmd(control_id, rootfs: rootfs, extra_inputs: extra_inputs,
-                             rootfs_prefix: rootfs_prefix, results_dir: results_dir)
+                             rootfs_prefix: rootfs_prefix, input_file: input_file,
+                             results_dir: results_dir)
       stdout, stderr, process_status = Open3.capture3(*cmd)
       json_path = File.join(results_dir, 'output.json')
       json_content = File.exist?(json_path) ? File.read(json_path) : nil
@@ -151,36 +160,40 @@ class InspecRunner
     $stderr.puts "=== status: #{result.status} ==="
   end
 
-  def self.build_direct_cmd(control_id, rootfs:, extra_inputs:, json_path:, rootfs_prefix: nil)
+  def self.build_direct_cmd(control_id, rootfs:, extra_inputs:, json_path:, rootfs_prefix: nil, input_file: nil)
     rootfs_value = rootfs_prefix ? File.join(rootfs, rootfs_prefix) : rootfs
     inputs = ["rootfs=#{rootfs_value}"] + extra_inputs.map { |k, v| "#{k}=#{v}" }
     cmd = [auditor_bin, 'exec', profile_path,
            '--controls', control_id,
            '--reporter', "json:#{json_path}",
-           '--no-create-lockfile',
-           '--input', *inputs]
+           '--no-create-lockfile']
+    cmd += ['--input-file', input_file] if input_file
+    cmd += ['--input', *inputs]
     cmd
   end
 
-  def self.build_docker_cmd(control_id, rootfs:, extra_inputs:, results_dir:, rootfs_prefix: nil)
+  def self.build_docker_cmd(control_id, rootfs:, extra_inputs:, results_dir:, rootfs_prefix: nil, input_file: nil)
     image = ENV['CINC_AUDITOR_IMAGE']
     # The fixture is bind-mounted at /fixture; the rootfs input points there, or
     # at a subpath beneath it when rootfs_prefix is set (see .run).
     rootfs_value = rootfs_prefix ? File.join('/fixture', rootfs_prefix) : '/fixture'
     inputs = ["rootfs=#{rootfs_value}"] + extra_inputs.map { |k, v| "#{k}=#{v}" }
-    cmd = docker_cmd + ['run', '--rm',
-           '--platform', 'linux/amd64',
-           '--user', '0:0',
-           '-v', "#{profile_path}:/profile:ro",
-           '-v', "#{rootfs}:/fixture:ro",
-           '-v', "#{results_dir}:/results",
-           image,
-           'exec', '/profile',
-           '--controls', control_id,
-           '--reporter', 'json:/results/output.json',
-           '--no-create-lockfile',
-           '--input', *inputs]
-    cmd
+    # When an input file is given, bind-mount it read-only at a fixed container
+    # path and pass that path to --input-file (the host path is meaningless
+    # inside the container). This mirrors the real docker-transport fix needed in
+    # issue #56, where the YAML must be mounted into the auditor container.
+    mounts = ['-v', "#{profile_path}:/profile:ro",
+              '-v', "#{rootfs}:/fixture:ro",
+              '-v', "#{results_dir}:/results"]
+    mounts += ['-v', "#{input_file}:/inputs.yml:ro"] if input_file
+    exec_args = ['exec', '/profile',
+                 '--controls', control_id,
+                 '--reporter', 'json:/results/output.json',
+                 '--no-create-lockfile']
+    exec_args += ['--input-file', '/inputs.yml'] if input_file
+    exec_args += ['--input', *inputs]
+    docker_cmd + ['run', '--rm', '--platform', 'linux/amd64', '--user', '0:0'] +
+      mounts + [image] + exec_args
   end
 end
 
@@ -265,7 +278,8 @@ end
 
 # Helper methods available in all spec files
 module InspecHelpers
-  def run_control(control_id, rootfs:, rootfs_prefix: nil, **extra_inputs)
-    InspecRunner.run(control_id, rootfs: rootfs, extra_inputs: extra_inputs, rootfs_prefix: rootfs_prefix)
+  def run_control(control_id, rootfs:, rootfs_prefix: nil, input_file: nil, **extra_inputs)
+    InspecRunner.run(control_id, rootfs: rootfs, extra_inputs: extra_inputs,
+                     rootfs_prefix: rootfs_prefix, input_file: input_file)
   end
 end

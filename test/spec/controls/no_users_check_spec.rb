@@ -158,4 +158,33 @@ RSpec.describe 'oval:org.NoUsers:def:1' do
       expect(run_control('oval:org.NoUsers:def:1', rootfs: rootfs)).to be_failing
     end
   end
+
+  # --- allowed_extra_users input override (B6) ---
+  #
+  # An interactive (non-allowed-shell) account after nobody whose name is NOT in
+  # the default allowed_extra_users list (_apt/messagebus/nonroot) is a finding by
+  # default. The allowed_extra_users input must be able to admit it. These two
+  # contexts share the same fixture (no apko.json, so the allow-list comes from
+  # the input, not apko) so the only variable is the override — proving the input
+  # actually drives the allow-list decision, not just the inspec.yml default.
+  context 'when a non-default interactive user appears after nobody' do
+    before do
+      File.write(File.join(etc_dir, 'passwd'), <<~PASSWD)
+        root:x:0:0:root:/root:/sbin/nologin
+        nobody:x:65534:65534:nobody:/:/sbin/nologin
+        myappuser:x:1000:1000:App User:/home/myappuser:/bin/bash
+      PASSWD
+      write_shadow('root', 'nobody', 'myappuser')
+    end
+
+    it 'fails without an override (not in the default allowed list)' do
+      expect(run_control('oval:org.NoUsers:def:1', rootfs: rootfs)).to be_failing
+    end
+
+    it 'passes when allowed_extra_users admits the account' do
+      result = run_control('oval:org.NoUsers:def:1', rootfs: rootfs,
+                           allowed_extra_users: '[myappuser]')
+      expect(result).to be_passing
+    end
+  end
 end
