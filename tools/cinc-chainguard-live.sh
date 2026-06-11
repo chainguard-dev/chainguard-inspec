@@ -66,10 +66,12 @@ trap cleanup EXIT
 
 usage() {
     cat <<'USAGE'
-Usage: cinc-chainguard-live.sh [--use-local-profile] <image> [label] [results-dir]
+Usage: cinc-chainguard-live.sh [--use-local-profile] [--input-file <path>] <image> [label] [results-dir]
 
 Arguments:
   --use-local-profile  Mount local profile and run reports with host Ruby (developer mode)
+  --input-file <path>  InSpec input file (YAML) overriding inspec.yml defaults;
+                       bind-mounted into the auditor container. See examples/inputs.yml.
   image            Container image to scan (required)
   label            Environment label (default: dev)
   results-dir      Directory to write JSON/HTML outputs (default: ./results)
@@ -94,6 +96,14 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --use-local-profile)
             USE_EMBEDDED_PROFILE=false
+            shift
+            ;;
+        --input-file)
+            cinc_set_input_file "${2:-}" || { usage; exit 1; }
+            shift 2
+            ;;
+        --input-file=*)
+            cinc_set_input_file "${1#*=}" || { usage; exit 1; }
             shift
             ;;
         -h|--help)

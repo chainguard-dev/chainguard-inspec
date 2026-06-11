@@ -51,13 +51,15 @@ trap cleanup EXIT
 
 usage() {
     cat <<'USAGE'
-Usage: cinc-chainguard.sh [--use-tmpfs|--no-tmpfs] [--tmpfs-base <dir>] [--use-local-profile] <image> [label] [results-dir]
+Usage: cinc-chainguard.sh [--use-tmpfs|--no-tmpfs] [--tmpfs-base <dir>] [--use-local-profile] [--input-file <path>] <image> [label] [results-dir]
 
 Arguments:
   --use-tmpfs          Force extraction into tmpfs (default, uses /dev/shm on Linux)
   --no-tmpfs           Disable tmpfs extraction and use on-disk workspace
   --tmpfs-base DIR     Specify an explicit tmpfs directory to use for extraction
   --use-local-profile  Mount local `chainguard_stig/` and run reports with host Ruby (developer mode)
+  --input-file <path>  InSpec input file (YAML) overriding inspec.yml defaults;
+                       bind-mounted into the auditor container. See examples/inputs.yml.
   image            Container image to scan (required)
   label            Environment label (default: dev)
   results-dir      Directory to write JSON/HTML outputs (default: ./results)
@@ -92,6 +94,14 @@ while [[ $# -gt 0 ]]; do
             ;;
         --use-local-profile)
             USE_EMBEDDED_PROFILE=false
+            shift
+            ;;
+        --input-file)
+            cinc_set_input_file "${2:-}" || { usage; exit 1; }
+            shift 2
+            ;;
+        --input-file=*)
+            cinc_set_input_file "${1#*=}" || { usage; exit 1; }
             shift
             ;;
         -h|--help)

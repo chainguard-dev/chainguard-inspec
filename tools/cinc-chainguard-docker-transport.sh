@@ -67,10 +67,12 @@ trap cleanup EXIT
 
 usage() {
     cat <<'USAGE'
-Usage: cinc-chainguard-docker-transport.sh [--use-local-profile] <image> [label] [results-dir]
+Usage: cinc-chainguard-docker-transport.sh [--use-local-profile] [--input-file <path>] <image> [label] [results-dir]
 
 Arguments:
   --use-local-profile  Mount local profile and run reports with host Ruby (developer mode)
+  --input-file <path>  InSpec input file (YAML) overriding inspec.yml defaults;
+                       bind-mounted into the auditor container. See examples/inputs.yml.
   image            Container image to scan (required)
   label            Environment label (default: dev)
   results-dir      Directory to write JSON/HTML outputs (default: ./results)
@@ -103,6 +105,14 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --use-local-profile)
             USE_EMBEDDED_PROFILE=false
+            shift
+            ;;
+        --input-file)
+            cinc_set_input_file "${2:-}" || { usage; exit 1; }
+            shift 2
+            ;;
+        --input-file=*)
+            cinc_set_input_file "${1#*=}" || { usage; exit 1; }
             shift
             ;;
         -h|--help)
@@ -225,14 +235,28 @@ cinc_run_docker_transport() {
         auditor_args+=("${EXTRA_AUDITOR_ARGS[@]}")
     fi
 
+    # Bind-mount the input-override file into the auditor container so
+    # --input-file can resolve it (the host path is not visible in-container).
+    if [ -n "${INPUT_FILE}" ]; then
+        auditor_args+=(-v "${INPUT_FILE}:${INPUT_FILE_CONTAINER}:ro")
+    fi
+
+    local inspec_args=(
+        --no-create-lockfile
+        --reporter cli
+        --reporter "json:/results/${inspec_json_basename}"
+        -t "docker://${CONTAINER_ID}"
+        --user root
+    )
+
+    if [ -n "${INPUT_FILE}" ]; then
+        inspec_args+=(--input-file "${INPUT_FILE_CONTAINER}")
+    fi
+
     docker run "${auditor_args[@]}" \
         "${CINC_AUDITOR_IMAGE}" \
         exec "${PROFILE_PATH}" \
-          --no-create-lockfile \
-          --reporter cli \
-          --reporter "json:/results/${inspec_json_basename}" \
-          -t "docker://${CONTAINER_ID}" \
-          --user root
+          "${inspec_args[@]}"
     INSPEC_EXIT_CODE=$?
     set -e
 }
