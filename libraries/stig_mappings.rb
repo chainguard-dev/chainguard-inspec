@@ -12,9 +12,12 @@
 # limitations under the License.
 
 # STIG Mapping Library
-# Parses XCCDF XML directly to extract STIG metadata and OVAL check mappings
-
-require 'rexml/document'
+# Parses XCCDF XML directly to extract STIG metadata and OVAL check mappings.
+#
+# rexml is required lazily inside #load_xccdf (the only place it is used), not at
+# load time: it is a *bundled* gem (not guaranteed present on Ruby 3.4+), and the
+# XCCDF enrichment it powers is optional. If rexml (or the XCCDF file) is absent,
+# the HTML report still generates — just without the XCCDF-derived metadata.
 
 class StigMappings
   attr_reader :mappings_by_check, :all_rules, :unmapped_rules
@@ -29,12 +32,20 @@ class StigMappings
   end
 
   def load_xccdf(xccdf_path)
+    require 'rexml/document'
+
     doc = REXML::Document.new(File.read(xccdf_path))
 
     # Parse all Rule elements
     REXML::XPath.each(doc, '//ns0:Rule', { 'ns0' => 'http://checklists.nist.gov/xccdf/1.2' }) do |rule|
       parse_rule(rule)
     end
+  rescue LoadError
+    # rexml unavailable (bundled gem, dropped from Ruby 3.4 defaults). The XCCDF
+    # enrichment is optional; degrade gracefully so the HTML report still
+    # generates. @mappings_by_check/@all_rules/@unmapped_rules stay empty.
+    warn 'stig_mappings: rexml gem not available; skipping XCCDF enrichment ' \
+         'of the HTML report (run `gem install rexml` for full reports).'
   end
 
   def parse_rule(rule_element)

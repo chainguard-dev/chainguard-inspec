@@ -70,9 +70,20 @@ cinc_check_docker() {
 }
 
 cinc_check_ruby() {
-    if ! $USE_EMBEDDED_PROFILE && ! command -v ruby >/dev/null 2>&1; then
+    $USE_EMBEDDED_PROFILE && return 0
+
+    if ! command -v ruby >/dev/null 2>&1; then
         echo "Error: Ruby is required to generate the HTML report" >&2
         exit 1
+    fi
+
+    # The HTML report's XCCDF enrichment uses rexml, a bundled gem that is not
+    # guaranteed present on Ruby 3.4+. Missing rexml is non-fatal — the report
+    # still generates without the XCCDF-derived metadata (see
+    # libraries/stig_mappings.rb) — so warn rather than exit.
+    if ! ruby -e "require 'rexml/document'" >/dev/null 2>&1; then
+        echo "Warning: the 'rexml' gem is not available; the HTML report will omit" >&2
+        echo "         XCCDF enrichment. Run 'gem install rexml' for full reports." >&2
     fi
 }
 
