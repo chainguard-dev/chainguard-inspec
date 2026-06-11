@@ -164,4 +164,56 @@ RSpec.describe 'oval:org.RemoteAccessServices:def:1' do
       expect(run_control('oval:org.RemoteAccessServices:def:1', rootfs: rootfs)).to be_failing
     end
   end
+
+  # --- banned_remote_packages input override (B6) ---
+  #
+  # The banned set is driven entirely by the banned_remote_packages input. These
+  # contexts prove the input — not just the inspec.yml default — decides the
+  # outcome, in both directions.
+
+  # A package absent from the default banned list must be flagged once added to
+  # the override. (myforbiddenpkg is not in the inspec.yml default list, so the
+  # default run would pass it.)
+  context 'when a custom override bans a package the default list ignores' do
+    before do
+      File.write(apk_db_path, <<~APK_DB)
+        C:Q1aaaabbbbcccc==
+        P:myforbiddenpkg
+        V:1.0.0-r0
+        A:x86_64
+
+      APK_DB
+    end
+
+    it 'passes under the default banned list' do
+      expect(run_control('oval:org.RemoteAccessServices:def:1', rootfs: rootfs)).to be_passing
+    end
+
+    it 'fails when the override bans it' do
+      result = run_control('oval:org.RemoteAccessServices:def:1', rootfs: rootfs,
+                           banned_remote_packages: '[myforbiddenpkg]')
+      expect(result).to be_failing
+    end
+  end
+
+  # The inverse: a package that IS in the default banned list (openssh) must pass
+  # when an override list omits it — confirming the default list is replaced, not
+  # merged.
+  context 'when an override omits a package that the default list bans' do
+    before do
+      File.write(apk_db_path, <<~APK_DB)
+        C:Q1ddddeeeeffff==
+        P:openssh
+        V:9.7_p1-r0
+        A:x86_64
+
+      APK_DB
+    end
+
+    it 'passes when the override list does not include openssh' do
+      result = run_control('oval:org.RemoteAccessServices:def:1', rootfs: rootfs,
+                           banned_remote_packages: '[vsftpd]')
+      expect(result).to be_passing
+    end
+  end
 end
