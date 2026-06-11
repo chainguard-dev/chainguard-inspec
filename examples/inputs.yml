@@ -1,0 +1,79 @@
+# Example input overrides for the Chainguard GPOS InSpec profile.
+#
+# Copy this file, edit the values for your image, then pass it to a scan:
+#
+#   cinc-auditor exec <profile> --input-file my-inputs.yml --input rootfs=<path>
+#
+# or, with the scan scripts, via EXTRA_INSPEC_ARGS (local transport):
+#
+#   EXTRA_INSPEC_ARGS="--input-file my-inputs.yml" ./tools/cinc-chainguard.sh <image>
+#
+# Every key is optional; an unset key uses the profile default from inspec.yml.
+# The keys and their semantics below mirror inspec.yml exactly.
+
+# SHA-256 of the image's CA bundle (etc/ssl/certs/ca-certificates.crt). The
+# profile default is the SHA-256 of the stock ca-certificates bundle at the
+# current release, so leave this unset for stock images. Override it only when
+# the image adds packages that bundle further certificates, changing the hash.
+# expected_cacert_hash: "<sha256 of your image's ca-certificates.crt>"
+
+# Where to evaluate the target filesystem from. The default "/" is correct when
+# scanning over a transport (docker:// against a container, ssh:// to a VM). Set
+# it to an extracted rootfs or an overlay merged directory when evaluating a
+# filesystem staged on the host. (The scan scripts set this for you.)
+# rootfs: /path/to/extracted/rootfs
+
+# Approved package repository DOMAINS. A repository in /etc/apk/repositories is
+# allowed when its host equals, or is a subdomain of, one of these (so customer
+# subdomains need no enumeration). Scheme and path are not matched; an empty
+# list allows no repositories. Entries may be bare domains or full URLs (only
+# the host is used). This list REPLACES the default — include the Chainguard
+# defaults you still need.
+allowed_repositories:
+  - apk.cgr.dev
+  - virtualapk.cgr.dev
+  - packages.cgr.dev
+  - packages.wolfi.dev
+  # - your-org.apk.cgr.dev   # example: add your own subdomain or domain
+
+# Service accounts permitted to appear after `nobody` in /etc/passwd (accounts
+# using a non-interactive shell — /sbin/nologin, /usr/sbin/nologin, /bin/false —
+# are always allowed, as are users declared in /etc/apko.json). This list
+# REPLACES the default; include the defaults you still need. The "myappuser"
+# entry below is an EXAMPLE — replace it with your image's service account, or
+# remove it.
+allowed_extra_users:
+  - _apt
+  - messagebus
+  - nonroot
+  - myappuser              # example: your image's interactive service account
+
+# Packages that must NOT be installed (remote-access services, etc.). This list
+# REPLACES the default banned set, so keep the entries you still want banned.
+# Version-stream variants (openssh -> openssh-9.7) are matched automatically;
+# separate subpackages (openssh-keygen) are not, unless listed in their own
+# right.
+# banned_remote_packages:
+#   - openssh
+#   - openssh-server
+#   - openssh-client
+#   - openssh-sftp-server
+#   - dropbear
+#   - tigervnc
+#   - xrdp
+#   - vsftpd
+#   - proftpd
+#   - webmin
+#   - cockpit
+#   - myforbiddenpkg        # example: add your own
+
+# Skip the FIPS-approved-cryptography checks (DetectOpenSslTest). Leave false
+# for FIPS images; set true only for images that are intentionally non-FIPS.
+# skip_fips_checks: false
+
+# Allow AslrCheck to read the host's /proc/sys/kernel/randomize_va_space when no
+# rootfs-relative sysctl path or runtime-capture file is present. Enable only
+# for overlay scans where /proc is not in the merged filesystem and the capture
+# file cannot be injected; leave false otherwise so synthetic environments do
+# not satisfy the check via the host kernel.
+# allow_host_aslr_fallback: false

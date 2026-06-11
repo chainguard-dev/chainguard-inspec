@@ -34,6 +34,23 @@ Results are written to `./results/` as both JSON and a standalone HTML report. O
 
 `cinc-chainguard.sh` exports and scans the filesystem without running the container's workload, making it a safe default for any image. See [Scan Scripts](#scan-scripts) for other approaches and their tradeoffs.
 
+### Customizing inputs
+
+The profile's behavior is tuned through a handful of inputs, each with a
+sensible default in `inspec.yml`; override any of them with an InSpec input
+file.
+
+The commented template [`examples/inputs.yml`](examples/inputs.yml) lists every
+overridable input with its semantics. Copy it, edit the values for your image,
+and pass it to a scan:
+
+```bash
+cinc-auditor exec <profile> --input-file my-inputs.yml --input rootfs=<path>
+```
+
+Each list-valued input **replaces** its default rather than extending it, so
+keep the default entries you still want.
+
 ## Controls and Coverage
 
 | Control file                    | Objective                                                                                                         |
@@ -163,6 +180,8 @@ For manual `docker://` transport scans without the wrapper script, a tool like [
 chainguard-inspec/
 ├── controls/
 ├── inspec.yml
+├── examples/
+│   └── inputs.yml         # template for overriding profile inputs
 ├── libraries/
 │   ├── find_helper.rb
 │   └── stig_mappings.rb
