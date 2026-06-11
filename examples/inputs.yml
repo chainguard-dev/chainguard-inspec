@@ -10,6 +10,12 @@
 #
 # Every key is optional; an unset key uses the profile default from inspec.yml.
 # The keys and their semantics below mirror inspec.yml exactly.
+#
+# Precedence: a value passed inline on the command line with --input
+# (e.g. --input rootfs=/some/path) OVERRIDES the same key set here in the
+# --input-file. So the scan scripts' rootfs (passed via --input) wins over any
+# rootfs you set in this file. Order of precedence, highest first:
+#   --input key=value  >  --input-file  >  the inspec.yml default.
 
 # SHA-256 of the image's CA bundle (etc/ssl/certs/ca-certificates.crt). The
 # profile default is the SHA-256 of the stock ca-certificates bundle at the

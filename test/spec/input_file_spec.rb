@@ -46,4 +46,15 @@ RSpec.describe 'examples/inputs.yml (--input-file dogfood)' do
     result = run_control('oval:org.NoUsers:def:1', rootfs: rootfs, input_file: example_inputs)
     expect(result).to be_passing
   end
+
+  # Precedence: an inline --input on the command line overrides the same key from
+  # an --input-file. Here the file admits myappuser (would pass) but an empty CLI
+  # --input allowed_extra_users wins, so myappuser is unauthorized and the control
+  # fails. This documents/guards the precedence noted in examples/inputs.yml:
+  #   --input key=value  >  --input-file  >  inspec.yml default.
+  it 'lets an inline --input override the same key from the input file' do
+    result = run_control('oval:org.NoUsers:def:1', rootfs: rootfs,
+                         input_file: example_inputs, allowed_extra_users: '[]')
+    expect(result).to be_failing
+  end
 end
