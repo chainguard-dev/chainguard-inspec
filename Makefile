@@ -64,7 +64,7 @@ tools-test: ## Run tools/ shell tests (test/tools/*_test.sh)
 	if [ $${#tests[@]} -eq 0 ]; then echo "No tools shell tests found (test/tools/*_test.sh)"; exit 0; fi; \
 	for t in "$${tests[@]}"; do echo "== $$t =="; bash "$$t" || exit 1; done
 
-scan-smoke: ## Heavy docker:// scan smoke (Tier 3 find path); not part of `make ci`
+scan-smoke: ## Heavy end-to-end scan smokes, all modes (docker-transport/filesystem/overlay/live); not part of `make ci`
 	@cd test && if command -v rspec >/dev/null 2>&1; then \
 		RUN_SCAN_SMOKE=1 rspec spec/integration; \
 	else \
