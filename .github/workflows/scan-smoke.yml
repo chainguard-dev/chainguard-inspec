@@ -61,4 +61,46 @@ jobs:
         # target and asserts (via InspecResult matchers) that the busybox find
         # path discovered files and the scan verdicts are correct.
         working-directory: test
-        run: bundle exec rspec spec/integration
+        run: bundle exec rspec spec/integration/docker_transport_smoke_spec.rb
+
+  filesystem:
+    if: ${{ github.repository == 'chainguard-dev/chainguard-inspec' }}
+    runs-on: ubuntu-latest
+    # Needs the Docker socket (image export) and Ruby — for rspec and for the
+    # HTML report generator, which runs with host Ruby under --use-local-profile.
+    permissions:
+      contents: read
+    env:
+      CINC_AUDITOR_IMAGE: cincproject/auditor:latest
+      RUN_SCAN_SMOKE: '1'
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - uses: ruby/setup-ruby@afeafc3d1ab54a631816aba4c914a0081c12ff2f # v1.310.0
+        with:
+          working-directory: test
+          bundler-cache: true
+          ruby-version: '3.4'
+
+      - name: Install rexml (host gem for the HTML report generator)
+        # The scan script's --use-local-profile HTML step runs plain host `ruby`
+        # and requires rexml (via libraries/stig_mappings.rb). Ruby 3.4 dropped
+        # rexml from its default gems, so install it globally.
+        run: gem install --no-document rexml
+
+      - name: Filesystem-reconstruction scan smoke (rspec integration)
+        # Drives tools/cinc-chainguard.sh against wolfi-base (public, has apk)
+        # and asserts (via InspecResult matchers) that the export/extract/scan
+        # pipeline discovered controls, find enumerated /usr/lib, and the
+        # verdicts are correct. Runs unprivileged: the extraction can't preserve
+        # the image's real file ownership without root, so the spec asserts only
+        # ownership-independent results (see the spec for rationale).
+        working-directory: test
+        run: bundle exec rspec spec/integration/filesystem_scan_smoke_spec.rb
