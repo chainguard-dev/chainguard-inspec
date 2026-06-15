@@ -48,6 +48,11 @@ jobs:
           bundler-cache: true
           ruby-version: '3.4' # Not needed with a .ruby-version, .tool-versions or mise.toml
 
+      - name: Run generate_stig_html.rb UTF-8 regression test
+        # Runs after ruby 3.4 is set up so it uses a json gem strict enough to
+        # surface the C/POSIX-locale encoding bug (older system rubies do not).
+        run: bash test/tools/generate_stig_html_test.sh
+
       - name: Validate profile (cinc-auditor check + exec discovers controls)
         run: |
           # Validate a clean profile dir (inspec.yml + controls/ + libraries/),
