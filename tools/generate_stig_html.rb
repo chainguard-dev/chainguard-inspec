@@ -23,6 +23,14 @@ require 'erb'
 require 'time'
 require 'cgi'
 
+# The cinc-auditor JSON report and this generator's HTML output are both
+# UTF-8 (the report can contain em-dashes, smart quotes, etc.). Force UTF-8
+# for file reads/writes so the tool works under a minimal container's
+# default C/POSIX (US-ASCII) locale and non-UTF-8 locales alike, rather
+# than crashing on JSON.parse or mis-transcoding on output.
+Encoding.default_external = Encoding::UTF_8
+Encoding.default_internal = Encoding::UTF_8
+
 class StigHtmlGenerator
   attr_reader :data, :output_file, :container_name, :container_label, :container_sha256, :stig_mappings
 
@@ -30,7 +38,7 @@ class StigHtmlGenerator
     @json_file = json_file
     @output_file = output_file
     @container_name = container_name
-    @container_label = container_label
+    @container_label = normalize_utf8(container_label)
     @container_sha256 = container_sha256
     @data = JSON.parse(File.read(json_file), symbolize_names: true)
 
@@ -38,6 +46,23 @@ class StigHtmlGenerator
     script_dir = File.dirname(File.expand_path(__FILE__))
     require File.join(script_dir, '../libraries/stig_mappings')
     @stig_mappings = StigMappings.new(xccdf_path)
+  end
+
+  # The container label is free-text supplied on the command line, so it is
+  # tagged with the startup locale's encoding, which may not be UTF-8.
+  # Normalize it to UTF-8 so it can be safely interpolated into the UTF-8 HTML
+  # output. (container_name is an OCI image reference and container_sha256 is a
+  # hex digest -- both ASCII by construction -- so they need no normalization.)
+  # If the bytes are already valid UTF-8 (the common case, even under a C
+  # locale), just relabel; otherwise transcode from the tagged encoding,
+  # replacing anything that can't be represented.
+  private def normalize_utf8(str)
+    return str if str.nil?
+
+    utf8 = str.dup.force_encoding(Encoding::UTF_8)
+    return utf8 if utf8.valid_encoding?
+
+    str.encode(Encoding::UTF_8, invalid: :replace, undef: :replace)
   end
 
   def get_stig_rule_details(rule_id)
