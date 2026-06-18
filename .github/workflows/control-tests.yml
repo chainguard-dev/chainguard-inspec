@@ -23,11 +23,23 @@ jobs:
     # access needed for cinc-auditor when using the Docker execution mode.
     permissions:
       contents: read
+    strategy:
+      # Run the suite against both auditor images so a divergence between the
+      # primary public Chainguard image and the upstream cincproject image is
+      # caught. fail-fast: false so one image's failure doesn't mask the other.
+      fail-fast: false
+      matrix:
+        include:
+          - name: chainguard
+            image: cgr.dev/chainguard/cinc-auditor:latest
+          - name: cincproject
+            image: cincproject/auditor:latest
+    name: test (${{ matrix.name }})
     env:
-      # The public Chainguard cinc-auditor image (no registry auth needed).
-      # Override to validate the profile against an alternate auditor image
-      # (e.g. cincproject/auditor:latest).
-      CINC_AUDITOR_IMAGE: cgr.dev/chainguard/cinc-auditor:latest
+      # Primary is the public Chainguard image; the matrix also exercises the
+      # upstream cincproject image. matrix.image is a static workflow literal
+      # (no untrusted input).
+      CINC_AUDITOR_IMAGE: ${{ matrix.image }}
     steps:
       - name: Harden Runner
         uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
