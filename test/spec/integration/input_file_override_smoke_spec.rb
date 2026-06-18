@@ -44,7 +44,7 @@ RSpec.describe 'input-file override applies across the scan scripts (examples/in
   }.freeze
 
   let(:target)        { ENV['SCAN_SMOKE_IMAGE'] || 'cgr.dev/chainguard/nginx:latest' }
-  let(:auditor_image) { ENV['CINC_AUDITOR_IMAGE'] || 'cincproject/auditor:latest' }
+  let(:auditor_image) { ENV['CINC_AUDITOR_IMAGE'] || 'cgr.dev/chainguard/cinc-auditor:latest' }
   let(:example_inputs) { File.expand_path('../../../examples/inputs.yml', __dir__) }
   # A non-default sentinel for a scalar input the scan scripts do NOT set inline
   # via --input (so the --input-file value wins). 64 hex chars = a valid-looking

@@ -26,7 +26,7 @@ require 'open3'
 # Run locally with `make scan-smoke`.
 RSpec.describe 'overlay merged-dir scan (cinc-chainguard-overlay.sh)', :scan_smoke do
   let(:target)        { ENV['SCAN_SMOKE_OVERLAY_IMAGE'] || 'cgr.dev/chainguard/nginx:latest' }
-  let(:auditor_image) { ENV['CINC_AUDITOR_IMAGE'] || 'cincproject/auditor:latest' }
+  let(:auditor_image) { ENV['CINC_AUDITOR_IMAGE'] || 'cgr.dev/chainguard/cinc-auditor:latest' }
   let(:script) { scan_script('cinc-chainguard-overlay.sh') }
 
   before do

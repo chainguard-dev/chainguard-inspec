@@ -20,7 +20,8 @@ Individual targets can be run on their own: `make pre-commit`, `make actionlint`
 
 - `make controls` prefers a system `rspec` and falls back to `bundle exec rspec`.
 - Override the scanner image with `CINC_AUDITOR_IMAGE=… make ci` (defaults to the
-  public `cincproject/auditor:latest`, matching CI).
+  public `cgr.dev/chainguard/cinc-auditor:latest`; e.g. set
+  `cincproject/auditor:latest` to validate against the upstream image).
 - The Docker-based targets need Docker; the filesystem-ownership control specs
   still require root / passwordless sudo (see [`testing.md`](testing.md)) and are
   otherwise skipped.
@@ -38,7 +39,7 @@ Individual targets can be run on their own: `make pre-commit`, `make actionlint`
   ```bash
   docker run --rm \
     -v "$(pwd):/share" \
-    cgr.dev/chainguard-private/cinc-auditor:latest \
+    cgr.dev/chainguard/cinc-auditor:latest \
     check /share/
   ```
 

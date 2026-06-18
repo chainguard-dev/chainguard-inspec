@@ -27,7 +27,7 @@ RSpec.describe 'live container scan (cinc-chainguard-live.sh)', :scan_smoke do
   # A public image whose workload stays in the foreground (so it remains running
   # through the scan) and is non-FIPS (so the FIPS-crypto control fails).
   let(:target)        { ENV['SCAN_SMOKE_LIVE_IMAGE'] || 'cgr.dev/chainguard/nginx:latest' }
-  let(:auditor_image) { ENV['CINC_AUDITOR_IMAGE'] || 'cincproject/auditor:latest' }
+  let(:auditor_image) { ENV['CINC_AUDITOR_IMAGE'] || 'cgr.dev/chainguard/cinc-auditor:latest' }
   let(:script) { scan_script('cinc-chainguard-live.sh') }
 
   before do

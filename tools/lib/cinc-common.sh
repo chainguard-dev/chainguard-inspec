@@ -45,7 +45,7 @@ fi
 # ---------------------------------------------------------------------------
 # Default configuration (override via environment before sourcing)
 # ---------------------------------------------------------------------------
-CINC_AUDITOR_IMAGE="${CINC_AUDITOR_IMAGE:-cgr.dev/chainguard-private/cinc-auditor:latest}"
+CINC_AUDITOR_IMAGE="${CINC_AUDITOR_IMAGE:-cgr.dev/chainguard/cinc-auditor:latest}"
 ASLR_HELPER_IMAGE="${ASLR_HELPER_IMAGE:-${CINC_AUDITOR_IMAGE}}"
 ASLR_SETTING_LOCATION="${ASLR_SETTING_LOCATION:-/proc/sys/kernel/randomize_va_space}"
 REPORT_SCRIPT_XCCDF_LOCATION="${REPORT_SCRIPT_XCCDF_LOCATION:-/usr/share/xml/scap/ssg/content/ssg-chainguard-gpos-ds.xml}"

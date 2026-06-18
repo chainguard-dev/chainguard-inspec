@@ -15,8 +15,10 @@
 
 SHELL := bash
 
-# cinc-auditor image for profile validation and control tests (matches CI).
-CINC_AUDITOR_IMAGE ?= cincproject/auditor:latest
+# cinc-auditor image for profile validation and control tests. Defaults to the
+# public Chainguard image; override (e.g. CINC_AUDITOR_IMAGE=cincproject/auditor:latest)
+# to validate against an alternate auditor image.
+CINC_AUDITOR_IMAGE ?= cgr.dev/chainguard/cinc-auditor:latest
 export CINC_AUDITOR_IMAGE
 
 # Workflow files actionlint checks (excludes dependabot, mirroring actionlint.yaml).
@@ -46,14 +48,25 @@ rubocop: ## Full rubocop style review (opt-in; not a CI gate)
 
 test: cinc-check tools-test controls ## Docker-based Control Tests (mirrors control-tests.yml)
 
+# --user 0:0 so this works regardless of the auditor image's default user: the
+# Chainguard image runs as nonroot and otherwise can't read the root-owned,
+# read-only /profile bind mount (cincproject defaults to root). Matches how the
+# scan scripts and rspec harness already invoke the auditor.
+#
+# The exec points rootfs at an empty dir: this check only needs to confirm
+# controls are *discovered* (count > 0), not evaluate them. Left at the default
+# rootfs=/ the controls scan the auditor image's own root fs — and the Chainguard
+# image bundles cinc-auditor under /usr/lib (upstream hides it under /opt), so
+# LibraryPermissions' `find /usr/lib` + per-file owner check traverses the entire
+# bundled Ruby/gem tree: minutes, effectively a hang.
 cinc-check: ## Validate a clean staged profile (check + assert controls are discovered)
-	@stage="$$(mktemp -d)"; results="$$(mktemp -d)"; chmod 777 "$$results"; \
-	trap 'rm -rf "$$stage" "$$results"' EXIT; \
+	@stage="$$(mktemp -d)"; results="$$(mktemp -d)"; scan="$$(mktemp -d)"; chmod 777 "$$results"; \
+	trap 'rm -rf "$$stage" "$$results" "$$scan"' EXIT; \
 	cp inspec.yml "$$stage/"; \
 	cp -a controls libraries "$$stage/"; \
-	docker run --rm --platform linux/amd64 -v "$$stage:/profile:ro" "$(CINC_AUDITOR_IMAGE)" check /profile; \
-	docker run --rm --platform linux/amd64 -v "$$stage:/profile:ro" -v "$$results:/results:rw" \
-		"$(CINC_AUDITOR_IMAGE)" exec /profile --no-create-lockfile --reporter json:/results/out.json >/dev/null 2>&1 || true; \
+	docker run --rm --platform linux/amd64 --user 0:0 -v "$$stage:/profile:ro" "$(CINC_AUDITOR_IMAGE)" check /profile; \
+	docker run --rm --platform linux/amd64 --user 0:0 -v "$$stage:/profile:ro" -v "$$scan:/scan-root:ro" -v "$$results:/results:rw" \
+		"$(CINC_AUDITOR_IMAGE)" exec /profile --no-create-lockfile --input rootfs=/scan-root --reporter json:/results/out.json >/dev/null 2>&1 || true; \
 	n="$$(jq '.profiles[0].controls | length' "$$results/out.json" 2>/dev/null || echo 0)"; \
 	echo "Controls discovered by exec: $$n"; \
 	[ "$$n" -gt 0 ] || { echo "ERROR: profile exec discovered zero controls (inspec#7934 regression)"; exit 1; }

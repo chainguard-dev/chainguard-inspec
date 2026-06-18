@@ -29,7 +29,7 @@ RSpec.describe 'docker:// transport scan (FindHelper Tier 3)', :scan_smoke do
   # busybox the script bind-mounts at /bin/sh) so FindHelper must reach Tier 3;
   # with /usr/lib libraries to discover; and NON-FIPS so the FIPS control fails.
   let(:target)        { ENV['SCAN_SMOKE_IMAGE'] || 'cgr.dev/chainguard/glibc-dynamic:latest' }
-  let(:auditor_image) { ENV['CINC_AUDITOR_IMAGE'] || 'cincproject/auditor:latest' }
+  let(:auditor_image) { ENV['CINC_AUDITOR_IMAGE'] || 'cgr.dev/chainguard/cinc-auditor:latest' }
   let(:script) { scan_script('cinc-chainguard-docker-transport.sh') }
 
   before do
