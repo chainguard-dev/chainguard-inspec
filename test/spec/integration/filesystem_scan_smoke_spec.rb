@@ -37,7 +37,7 @@ RSpec.describe 'filesystem reconstruction scan (cinc-chainguard.sh)', :scan_smok
   # non-FIPS, so the FIPS-crypto control fails (a stable, ownership-independent
   # verdict). It also ships /usr/lib libraries for find to enumerate.
   let(:target)        { ENV['SCAN_SMOKE_FS_IMAGE'] || 'cgr.dev/chainguard/wolfi-base:latest' }
-  let(:auditor_image) { ENV['CINC_AUDITOR_IMAGE'] || 'cincproject/auditor:latest' }
+  let(:auditor_image) { ENV['CINC_AUDITOR_IMAGE'] || 'cgr.dev/chainguard/cinc-auditor:latest' }
   let(:script) { scan_script('cinc-chainguard.sh') }
 
   before do

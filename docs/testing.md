@@ -146,23 +146,23 @@ is that control's responsibility at all — for content checks, upstream's
 `none_exist` convention is "absent file ⇒ compliant," with existence enforced by
 a separate rule.
 
-## Running locally with system rspec + the private cinc-auditor image
+## Running locally with system rspec + the Chainguard cinc-auditor image
 
 Common developer setup: system-installed `rspec`, Docker present, and no
-`cinc-auditor` binary. Use the Chainguard cinc-auditor image (this is the image
-that incorporates the train fix described in the README's "Using binary
-distributions" caveat).
+`cinc-auditor` binary. Use the public Chainguard cinc-auditor image (it
+incorporates the train fix described in the README's "Using binary
+distributions" caveat); it is public, so no registry authentication is required.
 
 ```bash
-# 1. Authenticate to the private registry (one-time per session/token)
-chainctl auth configure-docker          # or: docker login cgr.dev
-
-# 2. Prime sudo so the permission-ownership fixtures don't skip (see above)
+# 1. Prime sudo so the permission-ownership fixtures don't skip (see above)
 sudo -v
 
-# 3. Run the suite from the test/ directory
+# 2. Run the suite from the test/ directory. With no cinc-auditor/inspec binary
+#    on PATH the harness falls through to Docker mode (see mode auto-detection
+#    above), which reads CINC_AUDITOR_IMAGE and has no built-in default, so set
+#    it. (A binary on PATH, or CINC_AUDITOR_BIN, would be used directly instead.)
 cd test
-CINC_AUDITOR_IMAGE=cgr.dev/chainguard-private/cinc-auditor:latest rspec
+CINC_AUDITOR_IMAGE=cgr.dev/chainguard/cinc-auditor:latest rspec
 ```
 
 - Bare `rspec` uses the **system** gem and skips bundler. `require 'spec_helper'`
@@ -174,7 +174,7 @@ CINC_AUDITOR_IMAGE=cgr.dev/chainguard-private/cinc-auditor:latest rspec
 - Single file / single example:
 
   ```bash
-  CINC_AUDITOR_IMAGE=cgr.dev/chainguard-private/cinc-auditor:latest \
+  CINC_AUDITOR_IMAGE=cgr.dev/chainguard/cinc-auditor:latest \
     rspec spec/controls/aslr_check_spec.rb -e 'passes'
   ```
 
@@ -214,11 +214,10 @@ Docker-in-Docker works for Docker mode, and so the root-ownership fixtures can
 `sudo chown`), sets up Ruby 3.4 with `bundler-cache`, and runs
 `bundle exec rspec` in `test/`.
 
-CI currently uses the **public** `cincproject/auditor:latest` image
-(`CINC_AUDITOR_IMAGE` in the workflow env) rather than the private Chainguard
-image, so the suite runs without registry credentials. The workflow comment
-notes the intent to switch to a public `cgr.dev/chainguard/cinc-auditor` image
-if/when one is published.
+CI uses the public `cgr.dev/chainguard/cinc-auditor:latest` image
+(`CINC_AUDITOR_IMAGE` in the workflow env), so the suite runs without registry
+credentials. Override `CINC_AUDITOR_IMAGE` to validate against an alternate
+auditor image (e.g. the upstream `cincproject/auditor:latest`).
 
 ## Writing a new control spec
 

@@ -14,7 +14,7 @@ This repository provides an InSpec profile to evaluate Chainguard container imag
 ## Requirements
 
 - **Docker** with permission to run the Chainguard cinc-auditor image and to pull target container images.
-- **cinc-auditor image** (`cgr.dev/chainguard-private/cinc-auditor:latest`) pulled and accessible; override with the `CINC_AUDITOR_IMAGE` environment variable. This image is hosted in Chainguard's private registry and requires authenticated access to pull.
+- **cinc-auditor image** (`cgr.dev/chainguard/cinc-auditor:latest`) pulled and accessible; override with the `CINC_AUDITOR_IMAGE` environment variable (e.g. to use the upstream `cincproject/auditor:latest`). This is a public Chainguard image — no registry authentication is required to pull it.
 - **Elevated privileges.** Every scan runs the cinc-auditor container as `root` (uid 0 inside the container) and `--privileged`; `cinc-chainguard.sh` and `cinc-chainguard-overlay.sh` additionally need the script itself run as root. Granting a container `--privileged` or the Docker socket is root-equivalent on the host, so only scan images and hosts you trust. See [Required privileges](#required-privileges) for the per-script breakdown.
 
 ## Optional

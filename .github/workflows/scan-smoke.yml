@@ -82,7 +82,10 @@ jobs:
             override_script: cinc-chainguard-live.sh
     name: scan-smoke (${{ matrix.mode }})
     env:
-      CINC_AUDITOR_IMAGE: cincproject/auditor:latest
+      # Public Chainguard cinc-auditor image; override CINC_AUDITOR_IMAGE to use
+      # an alternate. (The scan pipeline is image-agnostic, so the smokes run on
+      # this one image; control-tests.yml verifies the profile on both images.)
+      CINC_AUDITOR_IMAGE: cgr.dev/chainguard/cinc-auditor:latest
       RUN_SCAN_SMOKE: '1'
       # Empty for scan-mode entries (those specs ignore it); set to the target
       # script for override entries. Static workflow literal (no untrusted input).
