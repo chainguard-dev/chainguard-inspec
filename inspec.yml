@@ -71,7 +71,6 @@ inputs:
     value:
       - openssh
       - openssh-server
-      - openssh-client
       - openssh-sftp-server
       - dropbear
       - tigervnc

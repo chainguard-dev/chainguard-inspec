@@ -216,4 +216,44 @@ RSpec.describe 'oval:org.RemoteAccessServices:def:1' do
       expect(result).to be_passing
     end
   end
+
+  # Upstream stigs commit 2e346ee removed openssh-client from
+  # oval:org.RemoteAccessServices:obj:6: the SSH *client* is permitted, and FIPS
+  # ssh_config policy (checked by DetectOpenSslTest) governs it instead of a
+  # package ban. Banning it here would report a finding oscap does not.
+  context 'when openssh-client is present in the APK database' do
+    before do
+      File.write(apk_db_path, <<~APK_DB)
+        C:Q1client000001==
+        P:openssh-client
+        V:9.7_p1-r0
+        A:x86_64
+
+      APK_DB
+    end
+
+    it 'passes, because openssh-client is not a banned package' do
+      expect(run_control('oval:org.RemoteAccessServices:def:1', rootfs: rootfs)).to be_passing
+    end
+  end
+
+  # openssh-client as a version stream must also pass. ApkDb matches digit-led
+  # suffixes, so if openssh-client were still banned this would be flagged too —
+  # this guards the un-ban across the version-stream matcher, not just the exact
+  # name.
+  context 'when openssh-client is present as a version stream (P:openssh-client-9.7)' do
+    before do
+      File.write(apk_db_path, <<~APK_DB)
+        C:Q1client000002==
+        P:openssh-client-9.7
+        V:9.7_p1-r0
+        A:x86_64
+
+      APK_DB
+    end
+
+    it 'passes, because openssh-client is not a banned package' do
+      expect(run_control('oval:org.RemoteAccessServices:def:1', rootfs: rootfs)).to be_passing
+    end
+  end
 end
