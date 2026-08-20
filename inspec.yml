@@ -83,6 +83,14 @@ inputs:
       - webmin
       - cockpit
       - cockpit-ws
+      - cockpit-bridge
+      - nfs-utils
+      - samba
+      - samba-server
+      - samba-client
+      - samba-common
+      - rsh
+      - telnet
   - name: skip_fips_checks
     description: Skip exercising the checks for FIPS-approved crytpography
     type: Boolean

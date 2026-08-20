@@ -256,4 +256,46 @@ RSpec.describe 'oval:org.RemoteAccessServices:def:1' do
       expect(run_control('oval:org.RemoteAccessServices:def:1', rootfs: rootfs)).to be_passing
     end
   end
+
+  # These eight names are banned by oval:org.RemoteAccessServices:obj:6 but were
+  # missing from the profile's banned_remote_packages default, so the profile
+  # passed images oscap fails. One named row per package: the subtest name tells
+  # you which package regressed, and the failure message prints the APK db entry
+  # that was scanned.
+  describe 'packages banned by the OVAL that must be flagged' do
+    [
+      { name: 'cockpit-bridge', version: '320-r0' },
+      { name: 'nfs-utils',      version: '2.6.4-r0' },
+      { name: 'samba',          version: '4.19.4-r0' },
+      { name: 'samba-server',   version: '4.19.4-r0' },
+      { name: 'samba-client',   version: '4.19.4-r0' },
+      { name: 'samba-common',   version: '4.19.4-r0' },
+      { name: 'rsh',            version: '0.17-r0' },
+      { name: 'telnet',         version: '0.17-r0' }
+    ].each_with_index do |pkg, idx|
+      context "when #{pkg[:name]} is present in the APK database" do
+        let(:apk_db_entry) do
+          # Synthetic, distinct-per-row checksum (derived from the row index) —
+          # ApkDb matches only P: lines, never C: lines, but a distinct value
+          # per fixture avoids implying the rows are otherwise identical.
+          <<~APK_DB
+            C:Q1#{format('%012d', idx)}==
+            P:#{pkg[:name]}
+            V:#{pkg[:version]}
+            A:x86_64
+
+          APK_DB
+        end
+
+        before { File.write(apk_db_path, apk_db_entry) }
+
+        it "fails, because #{pkg[:name]} is a banned remote-access package" do
+          result = run_control('oval:org.RemoteAccessServices:def:1', rootfs: rootfs)
+          expect(result).to be_failing,
+            "expected #{pkg[:name]} to be flagged as a banned package, but the " \
+            "control passed. APK db content scanned:\n#{apk_db_entry}"
+        end
+      end
+    end
+  end
 end
