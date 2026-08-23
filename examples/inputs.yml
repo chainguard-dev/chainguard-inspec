@@ -57,13 +57,14 @@ allowed_extra_users:
 # Packages that must NOT be installed (remote-access services, etc.). This list
 # REPLACES the default banned set rather than adding to it, so the full default
 # is reproduced below — delete only what you genuinely intend to permit, and add
-# your own entries at the end. The default matches the SRG's OVAL check
-# (oval:org.RemoteAccessServices:obj:6) exactly.
+# your own entries at the end. The default matches the package list of the
+# SRG's OVAL check (oval:org.RemoteAccessServices:obj:6) exactly.
 # Version-stream variants (openssh -> openssh-9.7) are matched automatically;
 # separate subpackages (openssh-keygen) are not, unless listed in their own
 # right.
-# Note openssh-client is deliberately absent: the SSH client is permitted, and
-# its FIPS configuration is checked by DetectOpenSslTest instead.
+# Note `openssh-client` is deliberately absent: the SRG permits the SSH client
+# and governs it through FIPS `ssh_config` policy rather than a package ban.
+# Those configuration checks are not yet implemented in this profile.
 # banned_remote_packages:
 #   - openssh
 #   - openssh-server

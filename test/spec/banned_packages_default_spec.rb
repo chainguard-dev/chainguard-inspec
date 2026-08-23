@@ -11,7 +11,8 @@ require 'yaml'
 # makes drift a deliberate, reviewable edit rather than a silent one.
 #
 # When syncing to a new XCCDF release, update the `expected` list below from the
-# OVAL pattern and record the release in the comment below.
+# OVAL pattern, update the commented example in examples/inputs.yml to match,
+# and record the release in the comment below.
 #
 # Source: XCCDF 3.2.16, oval:org.RemoteAccessServices:obj:6.
 # Deliberately absent: openssh-client (un-banned upstream in stigs 2e346ee;
@@ -70,10 +71,21 @@ RSpec.describe 'banned_remote_packages default' do
     expect(actual).not_to include('openssh-client'),
       'openssh-client was un-banned upstream in stigs 2e346ee; banning it here ' \
       'reports a finding oscap does not. FIPS ssh_config policy governs the ' \
-      'client instead (DetectOpenSslTest).'
+      'client instead; those checks are not yet implemented in this profile.'
   end
 
   it 'still bans the openssh server-side packages' do
     expect(actual).to include('openssh', 'openssh-server', 'openssh-sftp-server')
+  end
+
+  it 'is reproduced verbatim in examples/inputs.yml' do
+    example = File.read(File.expand_path('../../examples/inputs.yml', __dir__))
+    commented = example.scan(/^#   - ([a-z0-9-]+)/).flatten - ['myforbiddenpkg']
+    expect(commented).to eq(actual),
+      "examples/inputs.yml drifted from the inspec.yml default.\n" \
+      "in inspec.yml, missing from the example: #{(actual - commented).inspect}\n" \
+      "in the example, not in inspec.yml: #{(commented - actual).inspect}\n" \
+      "example: #{commented.inspect}\n" \
+      "default: #{actual.inspect}"
   end
 end

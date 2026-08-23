@@ -219,8 +219,9 @@ RSpec.describe 'oval:org.RemoteAccessServices:def:1' do
 
   # Upstream stigs commit 2e346ee removed openssh-client from
   # oval:org.RemoteAccessServices:obj:6: the SSH *client* is permitted, and FIPS
-  # ssh_config policy (checked by DetectOpenSslTest) governs it instead of a
-  # package ban. Banning it here would report a finding oscap does not.
+  # ssh_config policy governs it instead of a package ban — those configuration
+  # checks are not yet implemented in this profile. Banning it here would
+  # report a finding oscap does not.
   context 'when openssh-client is present in the APK database' do
     before do
       File.write(apk_db_path, <<~APK_DB)
@@ -293,7 +294,8 @@ RSpec.describe 'oval:org.RemoteAccessServices:def:1' do
           result = run_control('oval:org.RemoteAccessServices:def:1', rootfs: rootfs)
           expect(result).to be_failing,
             "expected #{pkg[:name]} to be flagged as a banned package, but the " \
-            "control passed. APK db content scanned:\n#{apk_db_entry}"
+            "control passed. APK db content scanned:\n#{apk_db_entry}\n" \
+            "#{result.diagnostic}"
         end
       end
     end
