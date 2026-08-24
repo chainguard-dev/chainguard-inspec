@@ -216,4 +216,88 @@ RSpec.describe 'oval:org.RemoteAccessServices:def:1' do
       expect(result).to be_passing
     end
   end
+
+  # Upstream stigs commit 2e346ee removed openssh-client from
+  # oval:org.RemoteAccessServices:obj:6: the SSH *client* is permitted, and FIPS
+  # ssh_config policy governs it instead of a package ban — those configuration
+  # checks are not yet implemented in this profile. Banning it here would
+  # report a finding oscap does not.
+  context 'when openssh-client is present in the APK database' do
+    before do
+      File.write(apk_db_path, <<~APK_DB)
+        C:Q1client000001==
+        P:openssh-client
+        V:9.7_p1-r0
+        A:x86_64
+
+      APK_DB
+    end
+
+    it 'passes, because openssh-client is not a banned package' do
+      expect(run_control('oval:org.RemoteAccessServices:def:1', rootfs: rootfs)).to be_passing
+    end
+  end
+
+  # openssh-client as a version stream must also pass. ApkDb matches digit-led
+  # suffixes, so if openssh-client were still banned this would be flagged too —
+  # this guards the un-ban across the version-stream matcher, not just the exact
+  # name.
+  context 'when openssh-client is present as a version stream (P:openssh-client-9.7)' do
+    before do
+      File.write(apk_db_path, <<~APK_DB)
+        C:Q1client000002==
+        P:openssh-client-9.7
+        V:9.7_p1-r0
+        A:x86_64
+
+      APK_DB
+    end
+
+    it 'passes, because openssh-client is not a banned package' do
+      expect(run_control('oval:org.RemoteAccessServices:def:1', rootfs: rootfs)).to be_passing
+    end
+  end
+
+  # These eight names are banned by oval:org.RemoteAccessServices:obj:6 but were
+  # missing from the profile's banned_remote_packages default, so the profile
+  # passed images oscap fails. One named row per package: the subtest name tells
+  # you which package regressed, and the failure message prints the APK db entry
+  # that was scanned.
+  describe 'packages banned by the OVAL that must be flagged' do
+    [
+      { name: 'cockpit-bridge', version: '320-r0' },
+      { name: 'nfs-utils',      version: '2.6.4-r0' },
+      { name: 'samba',          version: '4.19.4-r0' },
+      { name: 'samba-server',   version: '4.19.4-r0' },
+      { name: 'samba-client',   version: '4.19.4-r0' },
+      { name: 'samba-common',   version: '4.19.4-r0' },
+      { name: 'rsh',            version: '0.17-r0' },
+      { name: 'telnet',         version: '0.17-r0' }
+    ].each_with_index do |pkg, idx|
+      context "when #{pkg[:name]} is present in the APK database" do
+        let(:apk_db_entry) do
+          # Synthetic, distinct-per-row checksum (derived from the row index) —
+          # ApkDb matches only P: lines, never C: lines, but a distinct value
+          # per fixture avoids implying the rows are otherwise identical.
+          <<~APK_DB
+            C:Q1#{format('%012d', idx)}==
+            P:#{pkg[:name]}
+            V:#{pkg[:version]}
+            A:x86_64
+
+          APK_DB
+        end
+
+        before { File.write(apk_db_path, apk_db_entry) }
+
+        it "fails, because #{pkg[:name]} is a banned remote-access package" do
+          result = run_control('oval:org.RemoteAccessServices:def:1', rootfs: rootfs)
+          expect(result).to be_failing,
+            "expected #{pkg[:name]} to be flagged as a banned package, but the " \
+            "control passed. APK db content scanned:\n#{apk_db_entry}\n" \
+            "#{result.diagnostic}"
+        end
+      end
+    end
+  end
 end
