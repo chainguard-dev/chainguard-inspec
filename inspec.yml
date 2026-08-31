@@ -30,7 +30,7 @@ inputs:
     description: Expected SHA-256 hash of CA bundle
     type: string
     required: true
-    value: 61efbd6d3f829f71039c57b29dd37d15ac7f33c4ece861aaef8c7d7a519cd1d9
+    value: b8d837841b88bfaa1a0fa827cbca8e2576418dd47c9fc4bb7f1f9d89c83111b9
   - name: rootfs
     # Defaults to / on purpose: when running over a transport (docker:// against
     # a container, or ssh:// to a VM) the profile should evaluate from the root
