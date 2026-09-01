@@ -24,13 +24,28 @@ supports:
 
 inputs:
   - name: expected_cacert_hash
-    # The default is the SHA-256 of the stock ca-certificates bundle at the
-    # current release (not a per-image value). Override it when the image is
-    # customized with packages that add further certificates, changing the hash.
-    description: Expected SHA-256 hash of CA bundle
+    # Optional override. Left empty, the expected digest is read from the
+    # sidecar digest apko writes beside the bundle at build time
+    # (/etc/ssl/certs/.ca-certificates.crt.sha256), which is what the SRG's
+    # OVAL check does as of XCCDF 3.2.16 (stigs c8bfbd2) — so a stock image
+    # needs no configuration and no re-pinning when ca-certificates rolls.
+    #
+    # Set it for an image whose bundle was changed by a DERIVED build layer
+    # AFTER this image was built — e.g. a downstream Dockerfile that runs
+    # update-ca-certificates on top of it. That rewrites the bundle but
+    # nothing regenerates the sidecar, so it goes stale and the override
+    # becomes the only way to express the real expected digest. An image
+    # customized through apko's own certificates: stanza needs no override —
+    # its sidecar already covers the merged result.
+    #
+    # Not `required`: an input declared required with no value raises and
+    # aborts the control, and one declared with no value at all resolves to a
+    # truthy NO_VALUE_SET sentinel rather than nil.
+    description: >
+      Expected SHA-256 of the CA bundle. Empty means read it from the
+      sidecar digest apko writes beside the bundle.
     type: string
-    required: true
-    value: b8d837841b88bfaa1a0fa827cbca8e2576418dd47c9fc4bb7f1f9d89c83111b9
+    value: ''
   - name: rootfs
     # Defaults to / on purpose: when running over a transport (docker:// against
     # a container, or ssh:// to a VM) the profile should evaluate from the root
