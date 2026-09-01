@@ -17,10 +17,30 @@
 # rootfs you set in this file. Order of precedence, highest first:
 #   --input key=value  >  --input-file  >  the inspec.yml default.
 
-# SHA-256 of the image's CA bundle (etc/ssl/certs/ca-certificates.crt). The
-# profile default is the SHA-256 of the stock ca-certificates bundle at the
-# current release, so leave this unset for stock images. Override it only when
-# the image adds packages that bundle further certificates, changing the hash.
+# Expected SHA-256 of /etc/ssl/certs/ca-certificates.crt.
+#
+# Leave this unset for stock images, and for images customized through apko's
+# own certificates: stanza (additional trust anchors merged at build time).
+# The profile reads the expected digest from the sidecar apko writes beside
+# the bundle (/etc/ssl/certs/.ca-certificates.crt.sha256) after assembling the
+# final rootfs, so both cases track it on their own and need no maintenance
+# here.
+#
+# Set it only when a DERIVED build layer changes the bundle bytes AFTER this
+# image was built — e.g. a downstream Dockerfile that runs
+# update-ca-certificates on top of it. Nothing regenerates the sidecar in
+# that case, so it goes stale and the scan fails until you record the real
+# digest here.
+#
+# An image with no sidecar at all predates apko's sidecar support; rebuild
+# with a current apko, or pull a current tag, rather than relying on the
+# override as anything but a stopgap.
+#
+# Record it at build time from the bundle you intend to ship — e.g. run
+#   sha256sum /etc/ssl/certs/ca-certificates.crt | cut -d' ' -f1
+# inside the build immediately after update-ca-certificates, and pin the result
+# here. Do not compute it from the image you are about to scan: that compares
+# the bundle to itself and the check will pass regardless of its contents.
 # expected_cacert_hash: "<sha256 of your image's ca-certificates.crt>"
 
 # Where to evaluate the target filesystem from. The default "/" is correct when
