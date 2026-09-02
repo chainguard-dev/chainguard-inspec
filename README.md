@@ -66,7 +66,7 @@ keep the default entries you still want.
 | `RemoteAccessServicesTest.rb`   | Verifies that banned remote access packages are absent from the APK installed database.                           |
 | `UserPasswordConfiguredTest.rb` | Confirms interactive accounts in `/etc/shadow` are disabled or locked.                                            |
 | `VarLogPermissionsTest.rb`      | Reports ownership and permissions for `/var/log` and enforces `root:root` with expected mode.                     |
-| `CaBundleHashTest.rb`           | Computes the SHA-256 hash of `etc/ssl/certs/ca-certificates.crt` and compares it to the expected reference value. |
+| `CaBundleHashTest.rb`           | Computes the SHA-256 hash of `etc/ssl/certs/ca-certificates.crt` and compares it to the digest in the sidecar apko writes beside it, or an override; images built before apko's sidecar support report a finding and need a rebuild or the override. |
 
 STIG rule identifiers, severities, and CCIs are defined through `tag` metadata within each control and are surfaced in the HTML report alongside test evidence.
 

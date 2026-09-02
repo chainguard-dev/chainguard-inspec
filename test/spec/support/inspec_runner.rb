@@ -232,6 +232,23 @@ class InspecResult
     end
   end
 
+  # Messages from this control's failing results, so a spec can assert *why* a
+  # control failed rather than only that it did. A negative test that checks
+  # `be_failing` alone can pass for an unrelated reason — and silently keep
+  # passing after the logic it was written to guard is removed.
+  def failure_messages
+    return [] unless @data
+
+    controls = @data.dig('profiles', 0, 'controls') || []
+    control = controls.find { |c| c['id'] == @control_id }
+    return [] unless control
+
+    (control['results'] || [])
+      .select { |r| %w[failed error].include?(r['status']) }
+      .map { |r| r['message'] || r['code_desc'] }
+      .compact
+  end
+
   def to_s
     "InspecResult(#{@control_id}: #{status})"
   end
