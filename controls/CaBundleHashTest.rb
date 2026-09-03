@@ -138,4 +138,44 @@ control 'oval:org.CABundleHash:def:1' do
       its('sha256sum') { should eq expected_hash }
     end
   end
+
+  # --- Java truststore (OVAL tst:5 / tst:6 / tst:7, stigs e0faacb) ---
+  #
+  # Java images ship a JKS/PKCS12 truststore beside the PEM bundle, with its own
+  # apko sidecar. tst:5 is check_existence="none_exist", so an image without one
+  # has nothing to verify and passes — most images are in that case.
+  #
+  # java_dir is derived from certs_dir, and the sidecar from java_dir, so the
+  # truststore and the sidecar describing it cannot drift onto different paths.
+  # Both must stay rootfs-relative: this scanner's own host may well have a real
+  # /etc/ssl/certs/java/cacerts, and an absolute path here would silently audit
+  # that instead of the image.
+  java_dir = File.join(certs_dir, 'java')
+  truststore_path = File.join(java_dir, 'cacerts')
+  truststore_file = file(truststore_path)
+
+  if truststore_file.exist?
+    truststore_sidecar_path = File.join(java_dir, '.cacerts.sha256')
+    truststore_sidecar = ::SidecarDigest.resolve(self, truststore_sidecar_path, 'cacerts')
+
+    describe "Java truststore checksum sidecar #{truststore_sidecar_path}" do
+      it 'records exactly one SHA-256 digest for cacerts' do
+        expect(truststore_sidecar).to be_resolved,
+          "#{truststore_sidecar.detail}. The truststore at #{truststore_path} " \
+          'cannot be verified without it.'
+      end
+    end
+
+    if truststore_sidecar.resolved?
+      describe truststore_file do
+        its('sha256sum') { should eq truststore_sidecar.digest }
+      end
+    end
+  else
+    describe "Java truststore #{truststore_path}" do
+      it 'is absent, so this image carries no truststore to verify' do
+        expect(truststore_file.exist?).to be(false)
+      end
+    end
+  end
 end

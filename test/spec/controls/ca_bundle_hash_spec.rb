@@ -463,4 +463,143 @@ RSpec.describe 'oval:org.CABundleHash:def:1' do
       expect(result).to be_passing
     end
   end
+
+  # --- Java truststore (stigs e0faacb) ---
+  #
+  # Java images ship a JKS/PKCS12 truststore at /etc/ssl/certs/java/cacerts with
+  # its own apko sidecar. OVAL criteria are
+  # OR( tst:5 no truststore, AND( tst:6 sidecar well-formed, tst:7 hash matches ) ),
+  # so an image without Java passes: there is nothing to verify.
+  #
+  # Every fixture here also lays down a valid system bundle and sidecar, so a
+  # failure can only come from the truststore arm.
+  #
+  # NOTE: paths are built under the fixture rootfs on purpose. This development
+  # host has a real /etc/ssl/certs/java/cacerts, so a control reading an
+  # absolute path would take the Java branch in direct mode and pass in docker
+  # mode — green CI, red laptop. rootfs_relativity_spec.rb guards that
+  # statically; these fixtures exercise it behaviourally.
+  describe 'Java truststore' do
+    let(:java_dir) { File.join(bundle_dir, 'java') }
+    let(:truststore_path) { File.join(java_dir, 'cacerts') }
+    let(:truststore_sidecar_path) { File.join(java_dir, '.cacerts.sha256') }
+    # Realistic-looking but synthetic; the control only ever hashes it.
+    let(:truststore_content) { "\xFE\xED\xFE\xEDsynthetic-jks-truststore-fixture".b }
+    let(:truststore_hash) { Digest::SHA256.hexdigest(truststore_content) }
+
+    before do
+      File.write(bundle_path, bundle_content)
+      File.write(stamp_path, "#{bundle_hash}  ca-certificates.crt\n")
+    end
+
+    def write_truststore(sidecar:)
+      FileUtils.mkdir_p(java_dir)
+      File.binwrite(truststore_path, truststore_content)
+      File.write(truststore_sidecar_path, sidecar) if sidecar
+    end
+
+    # tst:5: none_exist. The common case for every non-Java image.
+    context 'when the image carries no truststore' do
+      it 'passes, because there is nothing to verify' do
+        expect(run_control('oval:org.CABundleHash:def:1', rootfs: rootfs)).to be_passing
+      end
+    end
+
+    context 'when the truststore matches its sidecar' do
+      before { write_truststore(sidecar: "#{truststore_hash}  cacerts\n") }
+
+      it 'passes' do
+        expect(run_control('oval:org.CABundleHash:def:1', rootfs: rootfs)).to be_passing
+      end
+    end
+
+    context 'when the sidecar uses binary-mode format' do
+      before { write_truststore(sidecar: "#{truststore_hash} *cacerts\n") }
+
+      it 'passes' do
+        expect(run_control('oval:org.CABundleHash:def:1', rootfs: rootfs)).to be_passing
+      end
+    end
+
+    context 'when the sidecar records the digest in uppercase' do
+      before { write_truststore(sidecar: "#{truststore_hash.upcase}  cacerts\n") }
+
+      it 'passes, because the comparison is case-insensitive' do
+        expect(run_control('oval:org.CABundleHash:def:1', rootfs: rootfs)).to be_passing
+      end
+    end
+
+    # Each negative asserts the reason, not the bare verdict: the control has
+    # several ways to fail and `be_failing` alone would not tell them apart.
+    context 'when the truststore does not match its sidecar' do
+      before { write_truststore(sidecar: "#{wrong_hash}  cacerts\n") }
+
+      it 'fails, quoting the sidecar digest as the expected value' do
+        result = run_control('oval:org.CABundleHash:def:1', rootfs: rootfs)
+        expect(result).to be_failing
+        expect(result.failure_messages.join("\n")).to include(wrong_hash),
+          "expected the failure to quote the sidecar's digest as expected.\n#{result.diagnostic}"
+      end
+    end
+
+    context 'when the truststore is present but its sidecar is absent' do
+      before { write_truststore(sidecar: nil) }
+
+      it 'fails, naming the missing sidecar' do
+        result = run_control('oval:org.CABundleHash:def:1', rootfs: rootfs)
+        expect(result).to be_failing
+        expect(result.failure_messages.join("\n")).to include('.cacerts.sha256'),
+          "expected the failure to name the truststore sidecar.\n#{result.diagnostic}"
+        expect(result.failure_messages.join("\n")).to include('does not exist')
+      end
+    end
+
+    context 'when the truststore sidecar is unparseable' do
+      before { write_truststore(sidecar: "not a checksum line\n") }
+
+      it 'fails, naming the unparseable sidecar' do
+        result = run_control('oval:org.CABundleHash:def:1', rootfs: rootfs)
+        expect(result).to be_failing
+        expect(result.failure_messages.join("\n")).to include('no line matching')
+      end
+    end
+
+    # The system sidecar names ca-certificates.crt; the truststore's names
+    # cacerts. Accepting the wrong one would let either file's digest satisfy
+    # the other's check.
+    context 'when the truststore sidecar names the wrong file' do
+      before { write_truststore(sidecar: "#{truststore_hash}  ca-certificates.crt\n") }
+
+      it 'fails, because the sidecar must record a digest for cacerts' do
+        result = run_control('oval:org.CABundleHash:def:1', rootfs: rootfs)
+        expect(result).to be_failing
+        expect(result.failure_messages.join("\n")).to include('no line matching')
+      end
+    end
+
+    context 'when the truststore sidecar records two digest lines' do
+      before do
+        write_truststore(sidecar: "#{wrong_hash}  cacerts\n#{truststore_hash}  cacerts\n")
+      end
+
+      it 'fails, naming the digest-line count' do
+        result = run_control('oval:org.CABundleHash:def:1', rootfs: rootfs)
+        expect(result).to be_failing
+        expect(result.failure_messages.join("\n")).to include('2 digest lines')
+      end
+    end
+
+    # The system-bundle override must not silently excuse the truststore: they
+    # are independent arms of the same rule.
+    context 'when expected_cacert_hash is supplied and the truststore is bad' do
+      before { write_truststore(sidecar: "#{wrong_hash}  cacerts\n") }
+
+      it 'still fails, because the override covers only the system bundle' do
+        result = run_control('oval:org.CABundleHash:def:1', rootfs: rootfs,
+                             expected_cacert_hash: bundle_hash)
+        expect(result).to be_failing
+        expect(result.failure_messages.join("\n")).to include(wrong_hash)
+      end
+    end
+  end
 end
