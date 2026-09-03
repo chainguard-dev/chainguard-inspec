@@ -48,7 +48,10 @@ RSpec.describe SidecarDigest do
       result = resolve(exist: false)
       expect(result).not_to be_resolved
       expect(result.digest).to be_nil
-      expect(result.detail).to include('does not exist')
+      # The exact phrase, not just "does not exist": ca_bundle_hash_spec.rb
+      # pins the contiguous substring "file does not exist" and cannot be
+      # touched, so this must catch a wording regression there too.
+      expect(result.detail).to include('file does not exist')
     end
 
     # content is nil for a directory and for a file the scanner cannot read.

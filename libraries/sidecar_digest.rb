@@ -51,6 +51,10 @@ module ::SidecarDigest
   # file() resolves against the scan target rather than the scanner's host.
   def self.resolve(context, sidecar_path, basename)
     sidecar = context.file(sidecar_path)
+    # The literal phrase "file does not exist" is load-bearing: it's the
+    # contiguous substring test/spec/controls/ca_bundle_hash_spec.rb pins the
+    # missing-stamp failure to, and that spec cannot be edited. Don't rephrase
+    # this away without checking it.
     return Result.new(nil, "#{sidecar_path}: file does not exist") unless sidecar.exist?
 
     content = sidecar.content

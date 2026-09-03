@@ -114,8 +114,11 @@ control 'oval:org.CABundleHash:def:1' do
   unless override
     describe "CA bundle checksum stamp file #{stamp_path}" do
       it 'records exactly one SHA-256 digest for ca-certificates.crt' do
+        # stamp_result.detail already names stamp_path (SidecarDigest's
+        # detail strings are always self-contained), so this template does
+        # not repeat it.
         expect(stamp_result).to be_resolved,
-          "expected exactly one recorded digest for ca-certificates.crt in #{stamp_path}, " \
+          'expected exactly one recorded digest for ca-certificates.crt, ' \
           "but #{stamp_result.detail}. Set the expected_cacert_hash input to override the stamp."
       end
     end
