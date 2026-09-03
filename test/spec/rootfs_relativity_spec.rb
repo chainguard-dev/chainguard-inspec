@@ -44,6 +44,22 @@ require 'spec_helper'
 #       `describe "/etc/apk/repositories file contents (#{...} lines)"` --
 #       the space and '(' break the path-safe character class, so the
 #       quoted content is not a *pure* path and does not match.
+#     - an absolute path plus arguments/flags packed into one literal, e.g.
+#       `command('/usr/bin/find /etc/ssl -type f')`. This evades the guard
+#       by the same mechanism as the prose `describe` strings above (the
+#       trailing space breaks the path-safe character class), but it is a
+#       different, more serious risk: that's a real filesystem-touching
+#       call smuggling a host-absolute path past the guard, not reader-facing
+#       text. `controls/DetectOpenSslTest.rb:65,73` and
+#       `controls/LibraryPermissionsTest.rb:54` build find command strings
+#       this way, but safely, by interpolating `find_cmd` and
+#       `Shellwords.escape(...)` rather than hardcoding; a future edit that
+#       hardcodes such a string instead of interpolating would reintroduce
+#       this bug class and this guard would not catch it.
+#     - glob wildcards, e.g. `Dir.glob('/etc/ssl/*')` -- '*', '?' and '[]'
+#       all fall outside the path-safe character class, so the literal
+#       doesn't match. No control uses `Dir.glob` today, so this is a
+#       documented gap rather than a live miss.
 #
 #   This does NOT catch an absolute path assembled at runtime from more than
 #   one literal or from interpolation (e.g. `'/' + 'etc/ssl'`, or
