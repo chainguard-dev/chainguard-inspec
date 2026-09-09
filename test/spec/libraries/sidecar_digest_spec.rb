@@ -52,6 +52,36 @@ RSpec.describe SidecarDigest do
       # pins the contiguous substring "file does not exist" and cannot be
       # touched, so this must catch a wording regression there too.
       expect(result.detail).to include('file does not exist')
+      expect(result).to be_missing
+    end
+
+    # missing? distinguishes "no sidecar at all" from every other unresolved
+    # case structurally, so a caller (e.g. the future /kaniko arm) does not
+    # need to pattern-match on #detail's wording the way
+    # controls/CaBundleHashTest.rb's corroboration block used to.
+    it 'is not missing for a non-regular file at the sidecar path' do
+      result = resolve(exist: true, file: false, content: nil)
+      expect(result).not_to be_missing
+    end
+
+    it 'is not missing for an unreadable file' do
+      result = resolve(exist: true, file: true, content: nil)
+      expect(result).not_to be_missing
+    end
+
+    it 'is not missing for a well-formed sidecar naming the wrong file' do
+      result = resolve(exist: true, content: "#{digest}  something-else\n")
+      expect(result).not_to be_missing
+    end
+
+    it 'is not missing for a sidecar with two digest lines' do
+      result = resolve(exist: true, content: "#{digest}  cacerts\n#{'b' * 64}  cacerts\n")
+      expect(result).not_to be_missing
+    end
+
+    it 'is not missing for a resolved sidecar' do
+      result = resolve(exist: true, content: "#{digest}  cacerts\n")
+      expect(result).not_to be_missing
     end
 
     # content is nil for a directory and for a file the scanner cannot read.

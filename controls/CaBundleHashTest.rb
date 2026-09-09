@@ -15,7 +15,7 @@
 control 'oval:org.CABundleHash:def:1' do
   impact 0.5
   title 'Validate SHA-256 hash of CA bundle'
-  desc 'Ensure the CA bundle exists and its SHA-256 matches the digest recorded in the sidecar apko writes beside it at build time, or an explicitly supplied expected hash.'
+  desc 'Ensure the CA bundle exists and its SHA-256 matches the digest recorded in the sidecar apko writes beside it at build time, or an explicitly supplied expected hash. Java images additionally ship a JKS/PKCS12 truststore that, when present, must match the digest in its own sidecar.'
 
   # STIG rule mappings
 
@@ -45,8 +45,8 @@ control 'oval:org.CABundleHash:def:1' do
   # See SidecarDigest for why this is drift detection, not tamper evidence.
   # The scenario that motivates it here specifically is a downstream build
   # step that edits the bundle without re-running update-ca-certificates,
-  # regenerating the bundle but leaving the stamp stale.
-  stamp_result = SidecarDigest.resolve(self, stamp_path, 'ca-certificates.crt')
+  # leaving the stamp stale.
+  stamp_result = ::SidecarDigest.resolve(self, stamp_path, 'ca-certificates.crt')
 
   expected_hash = override || stamp_result.digest
 
@@ -84,7 +84,7 @@ control 'oval:org.CABundleHash:def:1' do
         "override in effect; #{stamp_path} records a different digest " \
           "(#{stamp_result.digest}), expected for a bundle changed after " \
           'the image was built'
-      elsif stamp_result.detail.include?('does not exist')
+      elsif stamp_result.missing?
         "override in effect; no sidecar at #{stamp_path} to corroborate it"
       else
         "override in effect; #{stamp_result.detail}, so it cannot corroborate"
@@ -154,7 +154,23 @@ control 'oval:org.CABundleHash:def:1' do
   truststore_path = File.join(java_dir, 'cacerts')
   truststore_file = file(truststore_path)
 
-  if truststore_file.exist?
+  # A directory at this path is treated as absent, matching oscap: its
+  # unix:file_object filepath probe does not collect a directory, so the
+  # datastream's tst:5 (none_exist) is true and the definition passes. Plain
+  # exist? alone would be true for a directory too and route into the
+  # verification branch below, where sha256sum on a directory returns nil and
+  # the comparison fails closed instead of matching oscap's pass.
+  #
+  # A dangling symlink is a smaller, accepted divergence in the opposite
+  # direction: oscap's file probe lstats, so the symlink itself counts as
+  # existing and the datastream errors (tst:7); file() here follows the link,
+  # so exist? is false and this control takes the absent branch below and
+  # passes. Benign — a dangling truststore cannot carry an unapproved trust
+  # anchor — and "error" has no InSpec representation, so there is nothing
+  # closer to parity to fall back to.
+  truststore_present = truststore_file.exist? && truststore_file.file?
+
+  if truststore_present
     truststore_sidecar_path = File.join(java_dir, '.cacerts.sha256')
     truststore_sidecar = ::SidecarDigest.resolve(self, truststore_sidecar_path, 'cacerts')
 
@@ -174,7 +190,7 @@ control 'oval:org.CABundleHash:def:1' do
   else
     describe "Java truststore #{truststore_path}" do
       it 'is absent, so this image carries no truststore to verify' do
-        expect(truststore_file.exist?).to be(false)
+        expect(truststore_present).to be(false)
       end
     end
   end

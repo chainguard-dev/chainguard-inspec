@@ -33,9 +33,20 @@ module ::SidecarDigest
   # Outcome of reading one sidecar. Exactly one of #digest / #detail is set:
   # #digest is the single recorded digest, lowercased; #detail says why no
   # single digest could be read, phrased for a control's failure message.
-  Result = Struct.new(:digest, :detail) do
+  #
+  # #missing? is set only on the file-absent path (the sidecar itself does
+  # not exist), distinct from every other unresolved case (not a regular
+  # file, unreadable, unparseable, or ambiguous). A caller that needs to
+  # distinguish "no sidecar at all" from "a sidecar that failed to resolve
+  # for some other reason" should check this instead of pattern-matching on
+  # #detail's wording.
+  Result = Struct.new(:digest, :detail, :missing) do
     def resolved?
       !digest.nil?
+    end
+
+    def missing?
+      !!missing
     end
   end
 
@@ -55,7 +66,9 @@ module ::SidecarDigest
     # contiguous substring test/spec/controls/ca_bundle_hash_spec.rb pins the
     # missing-stamp failure to, and that spec cannot be edited. Don't rephrase
     # this away without checking it.
-    return Result.new(nil, "#{sidecar_path}: file does not exist") unless sidecar.exist?
+    unless sidecar.exist?
+      return Result.new(nil, "#{sidecar_path}: file does not exist", true)
+    end
 
     content = sidecar.content
     if content.nil?

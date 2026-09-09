@@ -505,6 +505,19 @@ RSpec.describe 'oval:org.CABundleHash:def:1' do
       end
     end
 
+    # Matches oscap: its unix:file_object filepath probe does not collect a
+    # directory, so tst:5 (none_exist) is true and the definition passes.
+    # Without the file? check this control would instead route into the
+    # verification branch, where sha256sum on a directory returns nil and the
+    # comparison fails closed -- a false finding oscap does not report.
+    context 'when the truststore path is a directory instead of a file' do
+      before { FileUtils.mkdir_p(truststore_path) }
+
+      it 'passes, treating the directory as absent' do
+        expect(run_control('oval:org.CABundleHash:def:1', rootfs: rootfs)).to be_passing
+      end
+    end
+
     context 'when the truststore matches its sidecar' do
       before { write_truststore(sidecar: "#{truststore_hash}  cacerts\n") }
 

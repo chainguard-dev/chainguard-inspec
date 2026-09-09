@@ -60,6 +60,19 @@ require 'spec_helper'
 #       all fall outside the path-safe character class, so the literal
 #       doesn't match. No control uses `Dir.glob` today, so this is a
 #       documented gap rather than a live miss.
+#     - a path literal inside a `%w[...]` word array, e.g.
+#       `%w[/sbin/nologin /usr/sbin/nologin /bin/false]` -- the regex only
+#       looks for a quoted string literal, and `%w[]` elements are bare
+#       words with no surrounding quotes. There is a live instance at
+#       controls/NoUsersCheck.rb:73 (`allowed_shells`); those particular
+#       literals are an allowlist of shell paths compared against, not a
+#       filesystem access, so it is benign today. But it is also a live
+#       blind spot, not just a hypothetical one: docs/development.md notes
+#       the manual rubocop stage surfaces ~17 `Style/WordArray` suggestions
+#       on the controls, and an autocorrect of one of THIS rule's own
+#       single-quoted path literals into `%w[]` form would move it out of
+#       this guard's view without changing a single character the guard
+#       actually inspects.
 #
 #   This does NOT catch an absolute path assembled at runtime from more than
 #   one literal or from interpolation (e.g. `'/' + 'etc/ssl'`, or
@@ -140,11 +153,15 @@ RSpec.describe 'control paths stay relative to the rootfs input' do
 
         messages = violations.map do |line, literal|
           "controls/#{name}:#{line}: absolute path literal #{literal.inspect} -- " \
-            'an absolute path literal audits the machine running the scanner ' \
-            'instead of the image under test. This passes in docker mode (the ' \
-            'auditor image usually lacks the path) and fails, or worse silently ' \
-            'passes on the wrong file, in direct mode. Derive the path from the ' \
-            'rootfs input (File.join(rootfs, ...)) instead, or if this is a ' \
+            'when rootfs is something other than "/" (direct mode against an ' \
+            'extracted rootfs or overlay), an absolute path literal audits the ' \
+            'machine running the scanner instead of the image under test. (Over ' \
+            'a transport such as docker:// or ssh:// an absolute file() path ' \
+            'resolves against the target instead -- see controls/AslrCheck.rb\'s ' \
+            'allowlisted literal, which relies on exactly that.) This passes in ' \
+            'docker mode (the auditor image usually lacks the path) and fails, ' \
+            'or worse silently passes on the wrong file, in direct mode. Derive ' \
+            'the path from the rootfs input (File.join(rootfs, ...)) instead, or if this is a ' \
             'deliberate, input-gated host read, add it to the allowlist in ' \
             'test/spec/rootfs_relativity_spec.rb.'
         end
