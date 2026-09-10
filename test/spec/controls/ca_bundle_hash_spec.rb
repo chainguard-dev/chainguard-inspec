@@ -395,6 +395,20 @@ RSpec.describe 'oval:org.CABundleHash:def:1' do
   # stamp_path: in Docker mode the fixture is bind-mounted at a fixed
   # /fixture, so the path the control reports is not this spec's host tmpdir
   # path (see docker-mode-rootfs-fixture-remap in project notes).
+  # Every result description this control emitted that mentions the truststore.
+  # Scoped to the control's own `results` entries rather than searching
+  # raw_json, because the reporter embeds the control's entire source in `code`
+  # — a whole-payload substring match would find these phrases in the source
+  # regardless of what the run actually did.
+  def truststore_code_descs(result)
+    data = JSON.parse(result.raw_json)
+    control = data.dig('profiles', 0, 'controls').find { |c| c['id'] == result.control_id }
+    return [] unless control
+
+    (control['results'] || []).map { |r| r['code_desc'].to_s }
+                              .select { |d| d.match?(/truststore|cacerts/i) }
+  end
+
   def digest_origin_code_desc(result)
     data = JSON.parse(result.raw_json)
     control = data.dig('profiles', 0, 'controls').find { |c| c['id'] == result.control_id }
@@ -523,6 +537,62 @@ RSpec.describe 'oval:org.CABundleHash:def:1' do
 
       it 'passes' do
         expect(run_control('oval:org.CABundleHash:def:1', rootfs: rootfs)).to be_passing
+      end
+    end
+
+    # A symlinked truststore must be VERIFIED, not skipped. The control routes on
+    # `exist? && file?`, and both follow symlinks, so a link to a regular file
+    # takes the verification branch — where the digest compared is the target's.
+    # That currently rests on train's @follow_symlink defaulting true
+    # (train/file.rb, train/file/remote/unix.rb); these two contexts pin the
+    # behaviour so a transport change or a `file?` reimplementation cannot
+    # silently turn a real truststore into a skipped one.
+    #
+    # `be_passing` alone would NOT discriminate here: if the control skipped the
+    # symlink it would take the absent branch and pass just the same. So the
+    # positive case asserts the verification branch actually emitted its
+    # evidence, and the negative case asserts a mismatched target is caught.
+    context 'when the truststore path is a symlink to a real truststore' do
+      let(:linked_truststore_path) { File.join(java_dir, 'cacerts.real') }
+
+      before do
+        FileUtils.mkdir_p(java_dir)
+        File.binwrite(linked_truststore_path, truststore_content)
+        File.symlink('cacerts.real', truststore_path)
+        File.write(truststore_sidecar_path, "#{truststore_hash}  cacerts\n")
+      end
+
+      it 'verifies the link target rather than skipping it' do
+        result = run_control('oval:org.CABundleHash:def:1', rootfs: rootfs)
+        expect(result).to be_passing
+
+        # Scoped to this control's own result descriptions, not a raw_json
+        # substring: the reporter embeds the control's source in `code`, so a
+        # whole-payload search would match these strings whatever the run did.
+        descs = truststore_code_descs(result)
+        expect(descs.join("\n")).to include('records exactly one SHA-256 digest for cacerts'),
+          "expected the truststore verification branch to have run, got #{descs.inspect}.\n#{result.diagnostic}"
+        expect(descs.join("\n")).not_to include('carries no truststore to verify'),
+          "the symlinked truststore was treated as absent instead of verified.\n#{result.diagnostic}"
+      end
+    end
+
+    context 'when the truststore path is a symlink to a truststore that does not match' do
+      let(:linked_truststore_path) { File.join(java_dir, 'cacerts.real') }
+
+      before do
+        FileUtils.mkdir_p(java_dir)
+        File.binwrite(linked_truststore_path, "#{truststore_content}-tampered".b)
+        File.symlink('cacerts.real', truststore_path)
+        File.write(truststore_sidecar_path, "#{truststore_hash}  cacerts\n")
+      end
+
+      it 'fails, quoting the sidecar digest as the expected value' do
+        result = run_control('oval:org.CABundleHash:def:1', rootfs: rootfs)
+        expect(result).to be_failing
+        expect(result.failure_messages.join("\n")).to include(truststore_hash),
+          "expected the failure to quote the sidecar digest, which is how we know " \
+          "the link target was hashed at all.\n#{result.diagnostic}"
       end
     end
 
