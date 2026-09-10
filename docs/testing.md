@@ -93,6 +93,62 @@ Implications:
 
 Upstream issue: [inspec/inspec#7934](https://github.com/inspec/inspec/issues/7934).
 
+## Scan scripts default to the profile baked into the auditor image
+
+The `tools/` scan scripts do **not** evaluate your working tree by default.
+`cinc_setup_profile_paths` (`tools/lib/cinc-common.sh`) points `PROFILE_PATH` at
+`/usr/share/chainguard-inspec/` — the copy the `chainguard-inspec` apk installs
+*inside the auditor image*. Pass `--use-local-profile` to bind-mount and
+evaluate the checkout instead.
+
+The scan header does report which one is in play:
+
+```
+Profile:     embedded            # the auditor image's copy
+Profile:     local bind mount    # --use-local-profile
+```
+
+> **Gotcha — running a scan from a branch worktree does not mean you scanned
+> that branch's profile.** The results land in that worktree's `results/`
+> either way, so a local change can look like it had no effect, or an
+> already-merged change can look broken. The header distinguishes them; the
+> saved JSON does not.
+
+Worked example (2026-09-09). Scanning a private `jre-fips` image from a worktree
+carrying the sidecar-digest work reported `CaBundleHashTest` failing:
+
+```
+expected: #<Encoding:UTF-8>    "61efbd6d…"
+got:      #<Encoding:US-ASCII> "b8d83784…"
+```
+
+`61efbd6d…` was not a stale sidecar — it is the bundle digest in the `jre`-family
+lineage (`jre:latest-dev` verifies clean against its own sidecar), and it was the
+value `inspec.yml` **pinned** between 2026-04-21 and 2026-08-31. The embedded
+profile predated the switch to reading the sidecar, so it compared a pin from one
+image lineage against a bundle from another. Re-running with
+`--use-local-profile` passed 7/7. The differing encodings were a useful tell: a
+pinned value is parsed from YAML (UTF-8), a `sha256sum` result is not
+(US-ASCII).
+
+Since the saved report has no field naming the profile source, use one of these
+to identify an existing JSON after the fact:
+
+- **resolved inputs** (`profiles[0].attributes`): a populated
+  `expected_cacert_hash` means the older pinned profile; `""` means the
+  sidecar-reading one.
+- **the control's result list**: the sidecar-reading profile emits an
+  `Expected CA bundle digest origin` evidence line naming where the digest came
+  from. Its absence means the embedded profile ran.
+
+`version:` does **not** distinguish them — the profile version was not bumped
+across that change, so both report `0.0.4`.
+
+So: **verifying a local control change requires `--use-local-profile`**, and a
+scan result quoted as evidence for a change should be accompanied by one of the
+two tells above. Recording the profile source in the report JSON is a tracked
+follow-up.
+
 ## FilterTable resources can't assert file existence with `should exist`
 
 When a control needs to require that a file is present, assert it through the
