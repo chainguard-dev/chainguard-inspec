@@ -38,12 +38,21 @@ inputs:
     # customized through apko's own certificates: stanza needs no override —
     # its sidecar already covers the merged result.
     #
+    # This override covers the system bundle only. A Java image's truststore
+    # (/etc/ssl/certs/java/cacerts) is always checked against its own sidecar,
+    # and that same update-ca-certificates run also rewrites the truststore to
+    # a different digest even when no trust anchor changed — so an image whose
+    # derived layer ran it will fail the truststore check regardless of this
+    # input.
+    #
     # Not `required`: an input declared required with no value raises and
     # aborts the control, and one declared with no value at all resolves to a
     # truthy NO_VALUE_SET sentinel rather than nil.
     description: >
       Expected SHA-256 of the CA bundle. Empty means read it from the
-      sidecar digest apko writes beside the bundle.
+      sidecar digest apko writes beside the bundle. Covers the system bundle
+      only; a Java image's truststore is always checked against its own
+      sidecar regardless of this override.
     type: string
     value: ''
   - name: rootfs

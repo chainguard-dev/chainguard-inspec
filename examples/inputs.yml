@@ -36,6 +36,13 @@
 # with a current apko, or pull a current tag, rather than relying on the
 # override as anything but a stopgap.
 #
+# This override covers the system bundle only. A Java image's truststore
+# (/etc/ssl/certs/java/cacerts) is always checked against its own sidecar, and
+# the same update-ca-certificates run that motivates this override also
+# rewrites the truststore to a different digest even when no trust anchor
+# changed — so that image will fail the truststore check regardless of this
+# input.
+#
 # Record it at build time from the bundle you intend to ship — e.g. run
 #   sha256sum /etc/ssl/certs/ca-certificates.crt | cut -d' ' -f1
 # inside the build immediately after update-ca-certificates, and pin the result

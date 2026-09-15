@@ -15,7 +15,7 @@
 control 'oval:org.CABundleHash:def:1' do
   impact 0.5
   title 'Validate SHA-256 hash of CA bundle'
-  desc 'Ensure the CA bundle exists and its SHA-256 matches the digest recorded in the sidecar apko writes beside it at build time, or an explicitly supplied expected hash.'
+  desc 'Ensure the CA bundle exists and its SHA-256 matches the digest recorded in the sidecar apko writes beside it at build time, or an explicitly supplied expected hash. Java images additionally ship a JKS/PKCS12 truststore that, when present, must match the digest in its own sidecar.'
 
   # STIG rule mappings
 
@@ -26,11 +26,6 @@ control 'oval:org.CABundleHash:def:1' do
   tag stig_severities: ['medium']
 
   tag ccis: ['CCI-004909']
-
-  # Exactly one 64-hex digest recorded for ca-certificates.crt. sha256sum's
-  # binary mode writes the filename with a leading '*', which the OVAL pattern
-  # (oval:org.CABundleHash:obj:4) allows, so we allow it too.
-  stamp_line = /^([0-9a-fA-F]{64})[ \t]+\*?ca-certificates\.crt$/
 
   rootfs = ENV['ROOTFS_DIR'] || input('rootfs')
   certs_dir = File.join(rootfs, 'etc/ssl/certs')
@@ -47,25 +42,13 @@ control 'oval:org.CABundleHash:def:1' do
   override = nil unless override.is_a?(String) && !override.strip.empty?
   override = override&.strip&.downcase
 
-  stamp_file = file(stamp_path)
-  # The stamp only detects drift, not tampering: whoever can rewrite the
-  # bundle can rewrite the stamp beside it too. What this catches is a bundle
-  # modified after the image was built (e.g. a downstream build step that
-  # edits the bundle without re-running update-ca-certificates), not an
-  # adversary who already controls the filesystem.
-  #
-  # Downcased so the comparison is case-insensitive, matching OVAL ste:1's
-  # operation="case insensitive equals".
-  #
-  # .scrub before matching: the sidecar is adversary-influenceable in exactly
-  # the tampering scenario this control targets, and non-UTF8 bytes in it
-  # would otherwise raise ArgumentError here, at control-body scope — turning
-  # the whole control into a code error and losing the stamp finding, the
-  # bundle-existence evidence, and the hash comparison, unrescued by an
-  # override. A clean finding is a strictly better outcome than that.
-  stamp_digests = stamp_file.content.to_s.scrub.lines.filter_map { |l| l[stamp_line, 1] }.map(&:downcase)
+  # See SidecarDigest for why this is drift detection, not tamper evidence.
+  # The scenario that motivates it here specifically is a downstream build
+  # step that edits the bundle without re-running update-ca-certificates,
+  # leaving the stamp stale.
+  stamp_result = ::SidecarDigest.resolve(self, stamp_path, 'ca-certificates.crt')
 
-  expected_hash = override || (stamp_digests.length == 1 ? stamp_digests.first : nil)
+  expected_hash = override || stamp_result.digest
 
   # Where the expected digest came from, so a reviewer reading the report can
   # tell an override apart from a stamp read. Mirrors AslrCheck's origin block.
@@ -95,17 +78,16 @@ control 'oval:org.CABundleHash:def:1' do
     # contradictory. Stating what the stamp records lets the reader judge
     # significance themselves.
     corroboration =
-      if stamp_digests.length == 1 && stamp_digests.first == override
+      if stamp_result.digest == override
         "override in effect; #{stamp_path} records the same digest"
-      elsif stamp_digests.length == 1
+      elsif stamp_result.resolved?
         "override in effect; #{stamp_path} records a different digest " \
-          "(#{stamp_digests.first}), expected for a bundle changed after " \
+          "(#{stamp_result.digest}), expected for a bundle changed after " \
           'the image was built'
-      elsif !stamp_file.exist?
+      elsif stamp_result.missing?
         "override in effect; no sidecar at #{stamp_path} to corroborate it"
       else
-        "override in effect; #{stamp_path} records #{stamp_digests.length} " \
-          'digest lines, so it cannot corroborate'
+        "override in effect; #{stamp_result.detail}, so it cannot corroborate"
       end
 
     describe 'Supplied expected_cacert_hash corroboration' do
@@ -132,22 +114,12 @@ control 'oval:org.CABundleHash:def:1' do
   unless override
     describe "CA bundle checksum stamp file #{stamp_path}" do
       it 'records exactly one SHA-256 digest for ca-certificates.crt' do
-        detail =
-          if !stamp_file.exist?
-            'file does not exist'
-          elsif stamp_file.content.nil?
-            # Path exists but file() couldn't read it — a directory, or
-            # unreadable by this auditor — not a format problem, so don't
-            # send the operator hunting for a malformed digest line.
-            stamp_file.file? ? 'exists but is not readable' : 'exists but is not a regular file'
-          elsif stamp_digests.empty?
-            "no line matching #{stamp_line.source}"
-          else
-            "#{stamp_digests.length} digest lines: #{stamp_digests.inspect}"
-          end
-        expect(stamp_digests.length).to eq(1),
-          "expected exactly one recorded digest for ca-certificates.crt in #{stamp_path}, " \
-          "but #{detail}. Set the expected_cacert_hash input to override the stamp."
+        # stamp_result.detail already names stamp_path (SidecarDigest's
+        # detail strings are always self-contained), so this template does
+        # not repeat it.
+        expect(stamp_result).to be_resolved,
+          'expected exactly one recorded digest for ca-certificates.crt, ' \
+          "but #{stamp_result.detail}. Set the expected_cacert_hash input to override the stamp."
       end
     end
   end
@@ -164,6 +136,62 @@ control 'oval:org.CABundleHash:def:1' do
   if expected_hash
     describe bundle_file do
       its('sha256sum') { should eq expected_hash }
+    end
+  end
+
+  # --- Java truststore (OVAL tst:5 / tst:6 / tst:7, stigs e0faacb) ---
+  #
+  # Java images ship a JKS/PKCS12 truststore beside the PEM bundle, with its own
+  # apko sidecar. tst:5 is check_existence="none_exist", so an image without one
+  # has nothing to verify and passes — most images are in that case.
+  #
+  # java_dir is derived from certs_dir, and the sidecar from java_dir, so the
+  # truststore and the sidecar describing it cannot drift onto different paths.
+  # Both must stay rootfs-relative: this scanner's own host may well have a real
+  # /etc/ssl/certs/java/cacerts, and an absolute path here would silently audit
+  # that instead of the image.
+  java_dir = File.join(certs_dir, 'java')
+  truststore_path = File.join(java_dir, 'cacerts')
+  truststore_file = file(truststore_path)
+
+  # A directory at this path is treated as absent, matching oscap: its
+  # unix:file_object filepath probe does not collect a directory, so the
+  # datastream's tst:5 (none_exist) is true and the definition passes. Plain
+  # exist? alone would be true for a directory too and route into the
+  # verification branch below, where sha256sum on a directory returns nil and
+  # the comparison fails closed instead of matching oscap's pass.
+  #
+  # A dangling symlink is a smaller, accepted divergence in the opposite
+  # direction: oscap's file probe lstats, so the symlink itself counts as
+  # existing and the datastream errors (tst:7); file() here follows the link,
+  # so exist? is false and this control takes the absent branch below and
+  # passes. Benign — a dangling truststore cannot carry an unapproved trust
+  # anchor — and "error" has no InSpec representation, so there is nothing
+  # closer to parity to fall back to.
+  truststore_present = truststore_file.exist? && truststore_file.file?
+
+  if truststore_present
+    truststore_sidecar_path = File.join(java_dir, '.cacerts.sha256')
+    truststore_sidecar = ::SidecarDigest.resolve(self, truststore_sidecar_path, 'cacerts')
+
+    describe "Java truststore checksum sidecar #{truststore_sidecar_path}" do
+      it 'records exactly one SHA-256 digest for cacerts' do
+        expect(truststore_sidecar).to be_resolved,
+          "#{truststore_sidecar.detail}. The truststore at #{truststore_path} " \
+          'cannot be verified without it.'
+      end
+    end
+
+    if truststore_sidecar.resolved?
+      describe truststore_file do
+        its('sha256sum') { should eq truststore_sidecar.digest }
+      end
+    end
+  else
+    describe "Java truststore #{truststore_path}" do
+      it 'is absent, so this image carries no truststore to verify' do
+        expect(truststore_present).to be(false)
+      end
     end
   end
 end
