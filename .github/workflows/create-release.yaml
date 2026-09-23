@@ -1,0 +1,153 @@
+# Copyright 2026 Chainguard, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+# Tags and publishes a release once a prepare-release PR is merged.
+#
+# Fires on a merged `prerelease/v*` PR carrying the `release` label — the shape
+# prepare-release.yaml produces. It re-checks the invariant that workflow pair
+# exists for (inspec.yml's `version:` equals the tag about to be created),
+# confirms the profile still loads, then creates the tag and the GitHub
+# Release against the merge commit. See docs/releasing.md.
+#
+# Two jobs rather than one on purpose: `validate` runs repository code, and
+# `release` holds the credential. Keeping them apart means the job that can
+# mint a write-scoped token runs nothing but `gh release create`.
+
+name: Create Release
+
+on:
+  pull_request:
+    types: [closed]
+    branches:
+      - main
+
+permissions: {}
+
+jobs:
+  validate:
+    if: >
+      github.repository_owner == 'chainguard-dev' &&
+      github.event.pull_request.merged == true &&
+      startsWith(github.event.pull_request.head.ref, 'prerelease/v') &&
+      contains(github.event.pull_request.labels.*.name, 'release')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout the merge commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          # Tags are needed to check that this release moves forward, and a
+          # default shallow checkout fetches none.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Extract the version from the branch name
+        id: version
+        env:
+          # A branch name is attacker-influenced in general. It is passed as a
+          # single argv element to `validate`, which constrains it to a bare
+          # X.Y.Z, and only the validated result is written to $GITHUB_OUTPUT —
+          # so nothing unvalidated reaches a tag name or a later command.
+          # `validate` is the same check prepare-release applies, so the two
+          # cannot drift apart on what counts as a version.
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          if ! VERSION="$(tools/release-version.rb validate "${BRANCH#prerelease/}")"; then
+            echo "::error::Branch does not name a X.Y.Z version: ${BRANCH}"
+            exit 1
+          fi
+          {
+            echo "version=${VERSION}"
+            echo "tag=v${VERSION}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Assert the profile version matches the tag
+        # The reason this workflow pair exists. If these disagree, the release
+        # would ship a profile that misreports its own version, which is the
+        # drift prepare-release is meant to prevent.
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          recorded="$(tools/release-version.rb get)"
+          if [ "${recorded}" != "${VERSION}" ]; then
+            echo "::error::inspec.yml records ${recorded}, but this release is ${VERSION}"
+            exit 1
+          fi
+          echo "inspec.yml records ${recorded}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Assert the release moves forward
+        # A release should only move forward. The assertion above cannot see
+        # this: an abandoned prerelease PR carries an inspec.yml matching its
+        # own branch name, so it passes on its own terms no matter when it is
+        # merged. Only comparing against the tags that already exist catches a
+        # merge that would go backwards.
+        #
+        # This covers a stale PR for a version already passed, not one for a
+        # version still ahead — deleting the branch is what closes that, and
+        # docs/releasing.md says so.
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          if ! tools/release-version.rb assert-newer "${VERSION}"; then
+            echo "::error::v${VERSION} does not come after the newest release tag; refusing to tag out of order"
+            exit 1
+          fi
+
+      - name: Validate the profile still loads
+        # Cheap insurance against tagging a profile cinc-auditor cannot run.
+        # The full control suite already ran on the PR; this re-checks the
+        # merge commit specifically, which is what gets tagged.
+        run: make cinc-check
+
+  release:
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        with:
+          egress-policy: audit
+
+      - name: Generate token for release
+        uses: octo-sts/action@f603d3be9d8dd9871a265776e625a27b00effe05 # v1.1.1
+        id: octo-sts
+        with:
+          scope: ${{ github.repository }}
+          identity: create-release
+
+      - name: Create the tag and GitHub Release
+        env:
+          GH_TOKEN: ${{ steps.octo-sts.outputs.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.validate.outputs.tag }}
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+        run: |
+          set -euo pipefail
+          gh release create "${TAG}" \
+            --title "Release ${TAG}" \
+            --generate-notes \
+            --target "${MERGE_SHA}"
+
+          {
+            echo "### Release created"
+            echo "- **Tag**: \`${TAG}\`"
+            echo "- **Commit**: \`${MERGE_SHA}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

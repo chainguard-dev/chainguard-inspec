@@ -1,0 +1,185 @@
+# Copyright 2026 Chainguard, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+# Opens the pull request that cuts a release.
+#
+# Dispatch this from the Actions tab. It resolves the version — either the one
+# typed into the form, or the next one implied by the conventional commits
+# since the last tag — rewrites `inspec.yml`'s `version:` to match, and opens a
+# PR on a `prerelease/v*` branch labelled `release`. Merging that PR triggers
+# create-release.yaml, which tags the merge commit and publishes the release.
+#
+# The invariant the pair exists to maintain is that a scan report's profile
+# version equals the tag of the release it came from; it was previously
+# maintained by hand and drifted. See docs/releasing.md.
+
+name: Prepare Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version in X.Y.Z format. Leave empty to derive it from the commits since the last tag.'
+        required: false
+        type: string
+
+permissions: {}
+
+jobs:
+  prepare-release:
+    runs-on: ubuntu-latest
+    if: ${{ github.repository_owner == 'chainguard-dev' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: write
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Full history and tags: deriving the version means reading the
+          # commits since the most recent vX.Y.Z tag, and a default shallow
+          # checkout has neither.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolve the release version
+        id: version
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -n "${REQUESTED_VERSION}" ]; then
+            # Validated and normalised before it reaches a branch name or a
+            # tag. `validate` is the shared definition of a well-formed
+            # version, so this workflow and create-release cannot drift apart
+            # on what they accept.
+            if ! VERSION="$(tools/release-version.rb validate "${REQUESTED_VERSION}")"; then
+              echo "::error::Version must be in X.Y.Z format (e.g. 1.1.0), got: ${REQUESTED_VERSION}"
+              exit 1
+            fi
+            {
+              echo "version=${VERSION}"
+              echo "bump=explicit"
+              echo "reason=requested explicitly when the workflow was dispatched"
+            } >> "$GITHUB_OUTPUT"
+          else
+            # Emits version=/bump=/reason= and fails if there is nothing to
+            # release. See test/spec/tools/release_version_spec.rb.
+            tools/release-version.rb next --github-output >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check the tag does not already exist
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          if git rev-parse -q --verify "refs/tags/v${VERSION}" >/dev/null; then
+            echo "::error::Tag v${VERSION} already exists"
+            exit 1
+          fi
+
+      - name: Check the release moves forward
+        # Catches a mistyped version at dispatch rather than after review and
+        # merge. create-release repeats this as the backstop.
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          if ! tools/release-version.rb assert-newer "${VERSION}"; then
+            echo "::error::v${VERSION} does not come after the newest release tag"
+            exit 1
+          fi
+
+      - name: Set the profile version
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          tools/release-version.rb set "${VERSION}"
+          # An unchanged file would produce an empty PR, and so a release that
+          # never gets tagged. Fail here instead, where the reason is visible.
+          if git diff --quiet -- inspec.yml; then
+            echo "::error::inspec.yml already records ${VERSION}; nothing to prepare"
+            exit 1
+          fi
+
+      - name: Summarise the change
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          BUMP: ${{ steps.version.outputs.bump }}
+          REASON: ${{ steps.version.outputs.reason }}
+        run: |
+          set -euo pipefail
+          {
+            echo "### Preparing v${VERSION}"
+            echo
+            echo "- **Version**: \`${VERSION}\`"
+            echo "- **Bump**: \`${BUMP}\`"
+            echo "- **Why**: ${REASON}"
+            echo
+            echo '```diff'
+            git diff -- inspec.yml
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Generate token for PR
+        uses: octo-sts/action@f603d3be9d8dd9871a265776e625a27b00effe05 # v1.1.1
+        id: octo-sts
+        with:
+          scope: ${{ github.repository }}
+          identity: prepare-release
+
+      - name: Setup gitsign
+        uses: chainguard-dev/actions/setup-gitsign@805da2efdffdc42b8afd8880e575a48b471ef544 # v1.6.37
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        id: cpr
+        with:
+          # An octo-sts token rather than GITHUB_TOKEN, so the PR triggers the
+          # Control Tests workflow. A GITHUB_TOKEN-authored PR does not.
+          token: ${{ steps.octo-sts.outputs.token }}
+          commit-message: |
+            chore(release): set the profile version to ${{ steps.version.outputs.version }}
+
+            Keeps inspec.yml's version: equal to the tag of the release it is
+            cut from, so a scan report identifies the profile that produced it.
+          branch: prerelease/v${{ steps.version.outputs.version }}
+          delete-branch: true
+          title: "chore(release): prepare release v${{ steps.version.outputs.version }}"
+          body: |
+            ## Release v${{ steps.version.outputs.version }}
+
+            Sets `inspec.yml`'s `version:` to `${{ steps.version.outputs.version }}`
+            so the profile version a scan report carries matches the release tag.
+
+            | Field | Value |
+            |-------|-------|
+            | Version | `${{ steps.version.outputs.version }}` |
+            | Bump | `${{ steps.version.outputs.bump }}` |
+
+            Derivation: ${{ steps.version.outputs.reason }}
+
+            Merging this PR triggers `create-release`, which re-checks that
+            `inspec.yml` records `${{ steps.version.outputs.version }}`,
+            validates the profile still loads, then creates tag
+            `v${{ steps.version.outputs.version }}` and publishes the GitHub
+            Release against the merge commit.
+
+            If the version is wrong: close this PR **and delete its branch**,
+            then dispatch **Prepare Release** again with the version you want.
+            Nothing is tagged until a prerelease PR merges.
+
+            Deleting the branch matters — this PR keeps its `release` label
+            while closed, so reopening and merging it later would cut
+            `v${{ steps.version.outputs.version }}` for real. See
+            `docs/releasing.md` → "Declining the derived version".
+          labels: |
+            release
