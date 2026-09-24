@@ -1,0 +1,17 @@
+# Copyright 2026 Chainguard, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+# Lets create-release.yaml create the tag and publish the GitHub Release.
+#
+# `contents: write` is the narrowest grant that covers creating a release, and
+# the subject is pinned to the one workflow that does it. The job holding this
+# token runs nothing but `gh release create`; repository code is executed in a
+# separate job that has no token at all.
+
+issuer: https://token.actions.githubusercontent.com
+subject: repo:chainguard-dev/chainguard-inspec:pull_request
+claim_pattern:
+  job_workflow_ref: chainguard-dev/chainguard-inspec/.github/workflows/create-release.yaml@refs/heads/main
+
+permissions:
+  contents: write

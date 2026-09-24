@@ -216,6 +216,8 @@ suite, pre-commit hooks, and lint/style workflow — lives under [`docs/`](docs/
 - [`docs/development.md`](docs/development.md) — development guidelines,
   profile validation, and pre-commit hooks.
 - [`docs/testing.md`](docs/testing.md) — running the rspec control test suite.
+- [`docs/releasing.md`](docs/releasing.md) — cutting a release, and how the
+  profile version stays in step with the release tag.
 
 ## License
 

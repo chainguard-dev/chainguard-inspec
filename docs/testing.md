@@ -141,8 +141,13 @@ to identify an existing JSON after the fact:
   `Expected CA bundle digest origin` evidence line naming where the digest came
   from. Its absence means the embedded profile ran.
 
-`version:` does **not** distinguish them — the profile version was not bumped
-across that change, so both report `0.0.4`.
+`version:` did **not** distinguish them at the time — the profile version was
+not bumped across that change, so a report from either one says `0.0.4`. Any
+archived JSON reporting `0.0.4` therefore still needs one of the two tells
+above. Reports from `1.0.4` onwards do carry a usable version: `inspec.yml`'s
+`version:` is now bumped in the commit the release tag points at, so it tracks
+the released tag rather than drifting behind it — see
+[Releasing](releasing.md).
 
 So: **verifying a local control change requires `--use-local-profile`**, and a
 scan result quoted as evidence for a change should be accompanied by one of the
