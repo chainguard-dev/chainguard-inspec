@@ -130,8 +130,10 @@ fi
 cinc_check_docker
 cinc_check_ruby
 cinc_setup_profile_paths
+cinc_resolve_profile_versions
 cinc_setup_output_paths "stig"
 cinc_print_scan_header "Live overlay"
+cinc_warn_if_profile_stale
 cinc_pull_image
 cinc_get_image_digest
 
