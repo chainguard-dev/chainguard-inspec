@@ -164,6 +164,136 @@ cinc_setup_output_paths() {
 }
 
 # ---------------------------------------------------------------------------
+# Embedded-profile staleness
+# ---------------------------------------------------------------------------
+# The scan scripts evaluate the profile baked into the auditor image unless
+# --use-local-profile is passed, and a stale auditor image therefore silently
+# evaluates stale controls. That has produced a real false failure: an image
+# from before the CA-bundle sidecar work compared a months-old pinned digest
+# against a current bundle and reported CaBundleHashTest failing on a
+# compliant image.
+#
+# Nothing in the output distinguished the two profiles at the time, because
+# `version:` was not maintained. It is now (docs/releasing.md), so comparing
+# the image's embedded version against this checkout's is enough to catch it.
+#
+# Requires: CINC_AUDITOR_IMAGE, PROFILE_DIR, USE_EMBEDDED_PROFILE
+# Sets: PROFILE_VERSION, CHECKOUT_PROFILE_VERSION (either may be "unknown")
+# Parse a profile's `version:` from inspec.yml content on stdin.
+#
+# Anchored at column 0 so an indented `version:` under `inputs:` cannot match.
+# `tail -1` rather than `head -1` because YAML takes the last of duplicate
+# keys, which is the value InSpec itself would load.
+#
+# Reads stdin rather than a path so it works identically for a file on disk and
+# for bytes streamed out of a container, and so it is unit-testable without
+# Docker.
+# This function is TOTAL: it always exits 0, emitting either a plausible
+# version or nothing. Callers rely on that, because an assignment from a
+# failing command substitution aborts a `set -e` caller. sed's exit status is
+# not dependable here anyway — reading a directory gives 4 under GNU sed and 0
+# under busybox — so the status is absorbed rather than interpreted.
+cinc_parse_profile_version() {
+    local v=""
+    v="$(sed -n 's/^version:[[:space:]]*\([^[:space:]]*\).*/\1/p' | tail -1 || true)"
+
+    # Emit only something that actually looks like a version. Without this,
+    # `version:` followed by a comment yields `#`, a quoted `version: "1.1.0"`
+    # keeps its quotes, and a `version: |` block scalar yields `|` — each of
+    # which would be printed in the header as the profile's version and
+    # compared against the other side, producing a spurious staleness warning.
+    # Anything unrecognised degrades to empty, hence "unknown", hence silence:
+    # the check's failure mode should be saying nothing, never crying wolf.
+    # This mirrors the strictness of release-version.rb, which is the single
+    # implementation of the version rules on the release side.
+    case "${v}" in
+        '' | *[!0-9.]*) return 0 ;;
+    esac
+
+    printf '%s\n' "${v}"
+}
+
+cinc_resolve_profile_versions() {
+    PROFILE_VERSION="unknown"
+    CHECKOUT_PROFILE_VERSION="unknown"
+
+    # EVERY assignment below is explicitly non-fatal, and that is load-bearing
+    # rather than defensive habit. These functions are called from scripts
+    # running `set -euo pipefail`, where an assignment from a failing command
+    # substitution aborts the script at that line. This runs BEFORE the scan
+    # header, so such an abort produces no output whatsoever — strictly worse
+    # than the diagnosable error the caller would otherwise reach. A version we
+    # cannot read is "unknown"; it is never a reason to end the scan.
+    local parsed=""
+
+    # -r, not -f: a file that exists but is unreadable makes sed exit non-zero.
+    if [ -r "${PROFILE_DIR}/inspec.yml" ]; then
+        # No `|| true` needed: cinc_parse_profile_version is total. The
+        # embedded branch below DOES need one, because there the helper is the
+        # tail of a pipeline whose head is `docker run`.
+        parsed="$(cinc_parse_profile_version < "${PROFILE_DIR}/inspec.yml" 2>/dev/null)"
+        if [ -n "${parsed}" ]; then
+            CHECKOUT_PROFILE_VERSION="${parsed}"
+        fi
+    fi
+
+    if $USE_EMBEDDED_PROFILE; then
+        # --entrypoint cat rather than a shell: the version is parsed here, so
+        # this works whether or not the auditor image ships a shell.
+        #
+        # The `|| true` is the guard described above. Reachable whenever the
+        # auditor image carries no embedded profile (cincproject/auditor is a
+        # documented override), is unpullable, or the daemon is down.
+        parsed="$(docker run --rm --platform linux/amd64 --user 0:0 \
+            --entrypoint cat "${CINC_AUDITOR_IMAGE}" \
+            /usr/share/chainguard-inspec/inspec.yml 2>/dev/null \
+            | cinc_parse_profile_version || true)"
+        if [ -n "${parsed}" ]; then
+            PROFILE_VERSION="${parsed}"
+        fi
+    else
+        PROFILE_VERSION="${CHECKOUT_PROFILE_VERSION}"
+    fi
+
+    return 0
+}
+
+# Warn when the image's embedded profile is not the one this checkout holds.
+#
+# Deliberately reports the difference without claiming which is newer: `sort -V`
+# is GNU-only and these scripts run on macOS hosts too, so an ordering claim
+# here would be wrong on some platforms. Both values are printed, which is what
+# the reader needs either way.
+#
+# Requires: PROFILE_VERSION, CHECKOUT_PROFILE_VERSION, USE_EMBEDDED_PROFILE
+cinc_warn_if_profile_stale() {
+    $USE_EMBEDDED_PROFILE || return 0
+    [ "${PROFILE_VERSION}" = "unknown" ] && return 0
+    [ "${CHECKOUT_PROFILE_VERSION}" = "unknown" ] && return 0
+    [ "${PROFILE_VERSION}" = "${CHECKOUT_PROFILE_VERSION}" ] && return 0
+
+    echo "WARNING: the auditor image's embedded profile does not match this checkout." >&2
+    echo "         embedded (scanning with): ${PROFILE_VERSION}" >&2
+    echo "         this checkout:            ${CHECKOUT_PROFILE_VERSION}" >&2
+    echo "         Results reflect the embedded profile's controls, not this tree's." >&2
+    echo "         To scan with the newest published controls:" >&2
+    case "${CINC_AUDITOR_IMAGE}" in
+        *@sha256:*)
+            # A digest-pinned reference is immutable, so suggesting a pull of it
+            # would be advice that cannot work.
+            echo "           point CINC_AUDITOR_IMAGE at a newer image" >&2
+            echo "           (it is currently pinned to a digest)" >&2
+            ;;
+        *)
+            echo "           docker pull ${CINC_AUDITOR_IMAGE}" >&2
+            ;;
+    esac
+    echo "         To scan with this checkout's controls:" >&2
+    echo "           re-run with --use-local-profile" >&2
+    echo "" >&2
+}
+
+# ---------------------------------------------------------------------------
 # Scan header / footer
 # ---------------------------------------------------------------------------
 # $1 = scan type description (e.g. "Filesystem reconstruction", "Live overlay")
@@ -175,7 +305,11 @@ cinc_print_scan_header() {
     echo "Image:       ${IMAGE_NAME_NO_DIGEST}"
     echo "Label:       ${LABEL}"
     echo "Results:     ${RESULTS_DIR}"
-    echo "Profile:     ${PROFILE_SOURCE}"
+    if [ -n "${PROFILE_VERSION:-}" ] && [ "${PROFILE_VERSION}" != "unknown" ]; then
+        echo "Profile:     ${PROFILE_SOURCE} (${PROFILE_VERSION})"
+    else
+        echo "Profile:     ${PROFILE_SOURCE}"
+    fi
     echo ""
 }
 

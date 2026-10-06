@@ -50,21 +50,22 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Run tools shell tests
-        # Exercises tools/lib/cinc-common.sh helpers against real (tiny)
-        # containers; needs only Docker and the public Chainguard wolfi-base image.
-        run: bash test/tools/cinc_require_target_running_test.sh
-
       - uses: ruby/setup-ruby@14594264cd68ce8a2345dd349bc3d138a4ef85c8 # v1.327.0
         with:
           working-directory: test
           bundler-cache: true
           ruby-version: '3.4' # Not needed with a .ruby-version, .tool-versions or mise.toml
 
-      - name: Run generate_stig_html.rb UTF-8 regression test
-        # Runs after ruby 3.4 is set up so it uses a json gem strict enough to
-        # surface the C/POSIX-locale encoding bug (older system rubies do not).
-        run: bash test/tools/generate_stig_html_test.sh
+      - name: Run tools shell tests
+        # `make tools-test` globs test/tools/*_test.sh, so a new test file is
+        # picked up here without editing this workflow. Enumerating them by
+        # name previously meant cinc_profile_staleness_test.sh was added to the
+        # repo but never run by CI.
+        #
+        # Placed after the ruby 3.4 setup because generate_stig_html_test.sh
+        # needs a json gem strict enough to surface the C/POSIX-locale encoding
+        # bug (older system rubies do not). The others need only Docker.
+        run: make tools-test
 
       - name: Validate profile (cinc-auditor check + exec discovers controls)
         run: |

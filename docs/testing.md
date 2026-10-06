@@ -101,11 +101,11 @@ The `tools/` scan scripts do **not** evaluate your working tree by default.
 *inside the auditor image*. Pass `--use-local-profile` to bind-mount and
 evaluate the checkout instead.
 
-The scan header does report which one is in play:
+The scan header reports which one is in play, and its version:
 
 ```
-Profile:     embedded            # the auditor image's copy
-Profile:     local bind mount    # --use-local-profile
+Profile:     embedded (1.1.0)          # the auditor image's copy
+Profile:     local bind mount (1.1.0)  # --use-local-profile
 ```
 
 > **Gotcha — running a scan from a branch worktree does not mean you scanned
@@ -113,6 +113,30 @@ Profile:     local bind mount    # --use-local-profile
 > either way, so a local change can look like it had no effect, or an
 > already-merged change can look broken. The header distinguishes them; the
 > saved JSON does not.
+
+A **stale auditor image** is the sharper version of the same trap, because
+nothing about it looks wrong. `cinc_warn_if_profile_stale` therefore compares
+the image's embedded profile version against this checkout's and says so:
+
+```
+WARNING: the auditor image's embedded profile does not match this checkout.
+         embedded (scanning with): 0.0.4
+         this checkout:            1.1.0
+```
+
+It reports the difference without claiming which is newer — `sort -V` is
+GNU-only and these scripts run on macOS hosts too, so an ordering claim would
+be wrong on some platforms. Both values are printed, which is what the reader
+needs either way. The check is silent when the versions agree, when either is
+unreadable, and in `--use-local-profile` mode (where the checkout *is* the
+profile, so there is nothing to compare).
+
+This is worth having because the failure is a plausible-looking finding rather
+than an error. A three-month-old auditor image embedding profile `0.0.4` still
+carried the CA-bundle digest pinned before the sidecar work, so it reported
+`CaBundleHashTest` **failing** on a compliant `python:latest-dev` —
+`expected: "61efbd6d…"` against a current bundle. Nothing in the output said
+the profile was old.
 
 Worked example (2026-09-09). Scanning a private `jre-fips` image from a worktree
 carrying the sidecar-digest work reported `CaBundleHashTest` failing:

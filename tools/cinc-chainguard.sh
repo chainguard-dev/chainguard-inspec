@@ -131,8 +131,10 @@ fi
 cinc_check_docker
 cinc_check_ruby
 cinc_setup_profile_paths
+cinc_resolve_profile_versions
 cinc_setup_output_paths "stig"
 cinc_print_scan_header "Filesystem reconstruction"
+cinc_warn_if_profile_stale
 
 # The rootfs is reconstructed on the host with `docker export | tar`. Only a
 # root-side extraction can restore the image's real file ownership; running
