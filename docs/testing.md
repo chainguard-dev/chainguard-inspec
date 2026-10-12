@@ -1,4 +1,15 @@
-# Testing the controls (rspec unit harness)
+# Testing
+
+Two suites live under `test/`, with different harnesses:
+
+- **`test/spec/`** — the rspec control suite. Most of this document.
+- **`test/tools/*_test.sh`** — shell tests for the `tools/` scan helpers. See
+  [Testing the `tools/` shell helpers](#testing-the-tools-shell-helpers).
+
+Both run from `make test`; `make controls` and `make tools-test` run them
+individually.
+
+## The rspec control suite
 
 This profile ships a behavioural unit-test suite under `test/`. Each control has
 a spec in `test/spec/controls/` that builds a small synthetic root filesystem in
@@ -319,3 +330,89 @@ Mirror an existing spec (e.g. `test/spec/controls/aslr_check_spec.rb`):
   behind `skip 'requires root or passwordless sudo'`), `make_non_root_owned`,
   and `cleanup_with_root_files` (resets ownership before `rm_rf` so a non-root
   process can clean up root-owned fixtures).
+
+## Testing the `tools/` shell helpers
+
+`test/tools/*_test.sh` covers the shell in `tools/`, mostly the helpers in
+`tools/lib/cinc-common.sh`. They are plain bash scripts, each self-contained
+and runnable directly; `make tools-test` globs the directory, so a new file is
+picked up without editing anything. CI runs `make tools-test` from
+`control-tests.yml` — note it is the *glob* that matters: the workflow
+previously named each test file, and a test added to the repo went unrun by CI
+for as long as nobody remembered to edit the workflow too.
+
+Most are integration tests: they build or run real (tiny) containers rather
+than stubbing Docker, because the thing most likely to be wrong is the
+assumption about what a container does, and a stub encodes that assumption
+rather than testing it.
+
+### Gotcha — run errexit-sensitive cases in the shell mode production uses
+
+Every scan script in `tools/` starts with `set -euo pipefail`. The test harness
+**cannot**: it calls helpers and inspects `$?`, which `-e` makes impossible. So
+the harnesses use `set -uo pipefail`, and that difference will hide an entire
+class of bug from you.
+
+Under `set -e`, an assignment from a failing command substitution aborts the
+script **at that line**:
+
+```bash
+x="$(some_command_that_fails | sed -n p)"   # with -e: script dies here
+                                            # without -e: x='' and we continue
+```
+
+This shipped once. A version probe assigned from a pipeline starting with
+`docker run`; whenever the auditor image could not be read — an unpullable
+image, or `cincproject/auditor:latest`, which has no embedded profile — the
+scan died at that line. Because the probe ran *before* the scan header, the
+user got **no output at all**, where previously they got a header and a
+diagnosable error.
+
+The regression test for it asserted *"a missing embedded profile degrades to
+unknown, does not fail"* — exactly the broken behaviour — and **passed**,
+because `-e` was off on the test side and on in production. Fixture and code
+were consistently wrong, so the suite stayed quiet. Mutation testing did not
+help either: the mutation was caught by nothing, because nothing ran in the
+mode where it mattered.
+
+So when a helper is called from a script that uses `set -e`, test it in a
+subshell that does too:
+
+```bash
+run_under_errexit() {
+    bash -euo pipefail -c '
+        source "$1"
+        # ... set up and call the helper ...
+        echo "REACHED-END ${RESULT}"
+    ' bash "${TEST_DIR}/../../tools/lib/cinc-common.sh" "$@" 2>&1
+}
+```
+
+Two details that bite:
+
+- Pass the library as a **positional**, not as `$0`. `cinc-common.sh` refuses
+  to run as `$0` (it is a library), and `bash -c 'script' /path/to/lib` makes
+  the lib `$0`, so the guard fires and the test fails confusingly.
+- Assert on a sentinel the subshell prints *after* the call (`REACHED-END`
+  above), not just on its exit status. An abort and a clean run can both leave
+  you looking at a plausible-seeming `$?`.
+
+Better still, also drive the real script end to end for the failure you care
+about — `cinc_profile_staleness_test.sh` runs `tools/cinc-chainguard.sh` with a
+deliberately broken `CINC_AUDITOR_IMAGE` and asserts a header still appears.
+That case cannot be fooled by harness/production drift, because there is no
+harness in it.
+
+### Writing a new shell test
+
+Mirror `test/tools/cinc_require_target_running_test.sh`:
+
+- `set -uo pipefail` (not `-e` — see above), a `fails` counter, and `pass`/
+  `fail` helpers; exit non-zero at the end if `fails` is non-zero.
+- `source` the library under test via a `TEST_DIR`-relative path, with the
+  `# shellcheck source=` directive above it.
+- Clean up containers, images and tmpdirs in a `trap … EXIT`.
+- Prefer table-driven cases with a descriptive name per row, and print the
+  discriminating values on failure — `want`/`got`, not just "assertion failed".
+- `shellcheck -s bash -x -P tools <file>` must pass; that is what pre-commit
+  runs, and `-x` is required or the sourced library is not followed.
