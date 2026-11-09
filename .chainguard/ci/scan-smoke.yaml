@@ -1,0 +1,92 @@
+# Copyright 2026 Chainguard, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+# End-to-end smokes for the tools/ scan scripts. Mirrors the pull request
+# trigger of scan-smoke.yml. Checks has no schedule trigger, so its weekly run
+# stays on GitHub Actions.
+version: 1
+
+environment:
+  packages:
+    - bash
+    - coreutils
+    - docker-cli
+    - findutils
+    - git
+    - grep
+    - jq
+    - make
+    - ruby-3.4
+    - ruby3.4-json
+    # The --use-local-profile HTML step runs host Ruby, which needs rexml.
+    - ruby3.4-rexml
+    - ruby3.4-rspec
+  services: [docker]
+  vars:
+    # /tmp is a RAM tmpfs capped at a quarter of memory. The filesystem mode
+    # exports whole images.
+    TMPDIR: /var/tmp
+    RUN_SCAN_SMOKE: "1"
+    CINC_AUDITOR_IMAGE: cgr.dev/chainguard/cinc-auditor:latest
+    SCAN_SMOKE_OVERRIDE_SCRIPT: ""
+
+checks:
+  scan-smoke:
+    description: >-
+      Drives each tools/ scan script end to end against real images, one
+      variation per scan mode, plus one per script for the --input-file
+      override.
+    # Advisory until the live and overlay modes are known to work under Docker
+    # in the Checks VM.
+    advisory: true
+    when:
+      changed:
+        - "libraries/find_helper.rb"
+        - "tools/**"
+        - "test/spec/integration/**"
+        - ".chainguard/ci/scan-smoke.yaml"
+        - ".chainguard/ci/services/docker/**"
+    # The scans pull and run linux/amd64 images.
+    resources: medium-amd64
+    timeout: 30m
+    network:
+      # TODO: replace with the run page's suggested allowlist.
+      egress: ["*"]
+    foreach:
+      - name: docker-transport
+        vars: {SPEC: docker_transport_smoke_spec.rb}
+      - name: filesystem
+        vars: {SPEC: filesystem_scan_smoke_spec.rb}
+      - name: overlay
+        vars: {SPEC: overlay_scan_smoke_spec.rb}
+      - name: live
+        vars: {SPEC: live_scan_smoke_spec.rb}
+      - name: override-filesystem
+        vars:
+          SPEC: input_file_override_smoke_spec.rb
+          SCAN_SMOKE_OVERRIDE_SCRIPT: cinc-chainguard.sh
+      - name: override-docker-transport
+        vars:
+          SPEC: input_file_override_smoke_spec.rb
+          SCAN_SMOKE_OVERRIDE_SCRIPT: cinc-chainguard-docker-transport.sh
+      - name: override-overlay
+        vars:
+          SPEC: input_file_override_smoke_spec.rb
+          SCAN_SMOKE_OVERRIDE_SCRIPT: cinc-chainguard-overlay.sh
+      - name: override-live
+        vars:
+          SPEC: input_file_override_smoke_spec.rb
+          SCAN_SMOKE_OVERRIDE_SCRIPT: cinc-chainguard-live.sh
+    shell: bash
+    script: |
+      set -euo pipefail
+      cd test
+      rspec --format documentation \
+        --format json --out "${TMPDIR}/rspec.json" "spec/integration/${SPEC}"
+      # The specs skip, rather than fail, when Docker, an image, or overlay2
+      # is unavailable. Here that would mean the scan never ran.
+      pending="$(jq '.summary.pending_count' "${TMPDIR}/rspec.json")"
+      if [ "${pending}" -ne 0 ]; then
+        echo "::error::${pending} example(s) skipped; the scan did not run"
+        exit 1
+      fi
