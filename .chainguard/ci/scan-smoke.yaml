@@ -55,8 +55,11 @@ checks:
     resources: medium-amd64
     timeout: 30m
     network:
-      # TODO: replace with the run page's suggested allowlist.
-      egress: ["*"]
+      # The run page's suggested egress: cgr.dev images, whose layers the R2
+      # host serves.
+      egress:
+        - cgr.dev
+        - 9236a389bd48b984df91adc1bc924620.r2.cloudflarestorage.com
     foreach:
       - name: docker-transport
         vars: {SPEC: docker_transport_smoke_spec.rb}

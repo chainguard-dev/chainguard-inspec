@@ -49,8 +49,16 @@ checks:
     resources: medium-amd64
     timeout: 30m
     network:
-      # TODO: replace with the run page's suggested allowlist.
-      egress: ["*"]
+      # The union of the run page's suggested egress for both variations.
+      egress:
+        # cgr.dev images; the R2 host serves their layers.
+        - cgr.dev
+        - 9236a389bd48b984df91adc1bc924620.r2.cloudflarestorage.com
+        # Docker Hub: cincproject/auditor, and the made-up image names the
+        # tools/ shell tests pull to exercise a failed pull.
+        - registry-1.docker.io
+        - auth.docker.io
+        - production.cloudfront.docker.com
     foreach:
       - name: chainguard
         vars:
