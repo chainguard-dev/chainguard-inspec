@@ -18,6 +18,9 @@ environment:
     - make
     - ruby-3.4
     - ruby3.4-json
+    # Lets stig_mappings_spec.rb run its XCCDF parsing case, which skips without
+    # rexml (and does on GitHub Actions, where the bundle lacks it).
+    - ruby3.4-rexml
     - ruby3.4-rspec
   services: [docker]
   vars:
