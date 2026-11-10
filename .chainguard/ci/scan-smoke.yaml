@@ -26,6 +26,11 @@ environment:
     # /tmp is a RAM tmpfs capped at a quarter of memory. The filesystem mode
     # exports whole images.
     TMPDIR: /var/tmp
+    # Checks sets no LANG, so Ruby reads files as US-ASCII and fails on the
+    # UTF-8 in inspec.yml and the auditor's JSON reports. GitHub's Ubuntu
+    # runners set C.UTF-8. generate_stig_html_test.sh forces LC_ALL=C
+    # itself, so it still tests the C locale.
+    LANG: C.UTF-8
     RUN_SCAN_SMOKE: "1"
     CINC_AUDITOR_IMAGE: cgr.dev/chainguard/cinc-auditor:latest
     SCAN_SMOKE_OVERRIDE_SCRIPT: ""
