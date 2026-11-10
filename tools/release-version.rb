@@ -171,13 +171,23 @@ module ReleaseVersion
     # commit message containing blank lines survives round-tripping.
     LOG_FORMAT = '%H%x1f%B%x1e'
 
+    # inspec.yml and commit messages are UTF-8. Read them as such rather than in
+    # the locale's encoding: under the C/POSIX locale that is US-ASCII, and the
+    # first non-ASCII byte (inspec.yml's comments carry em-dashes) makes the
+    # version regexes raise.
+    TEXT_ENCODING = Encoding::UTF_8
+
     module_function
 
     def git(*args)
-      out = IO.popen(['git', *args], err: File::NULL, &:read)
+      out = IO.popen(['git', *args], err: File::NULL, external_encoding: TEXT_ENCODING, &:read)
       raise Error, "git #{args.join(' ')} failed" unless $?.success?
 
       out
+    end
+
+    def read_metadata(path)
+      File.read(path, encoding: TEXT_ENCODING)
     end
 
     # The newest `vX.Y.Z` tag, or nil if the repo has none.
@@ -237,19 +247,19 @@ module ReleaseVersion
     end
 
     def cmd_get(metadata)
-      puts ReleaseVersion.read_metadata_version(File.read(metadata))
+      puts ReleaseVersion.read_metadata_version(read_metadata(metadata))
       0
     end
 
     def cmd_set(metadata, version)
-      original = File.read(metadata)
+      original = read_metadata(metadata)
       updated = ReleaseVersion.write_metadata_version(original, version)
       File.write(metadata, updated) unless updated == original
 
       # Read back rather than trusting the write: this is the step the release
       # invariant rests on, and a silent no-op here would ship a mislabelled
       # profile.
-      actual = ReleaseVersion.read_metadata_version(File.read(metadata))
+      actual = ReleaseVersion.read_metadata_version(read_metadata(metadata))
       raise Error, "set #{version} but metadata reads #{actual}" unless actual == version
 
       warn(original == updated ? "#{metadata} already at #{version}" : "#{metadata} set to #{version}")
