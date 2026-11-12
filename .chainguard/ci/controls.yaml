@@ -1,0 +1,78 @@
+# Copyright 2026 Chainguard, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+# The tools/ shell tests, profile validation, and the control suite, against
+# each auditor image. Mirrors control-tests.yml, and runs the same Makefile
+# targets as `make test`.
+version: 1
+
+environment:
+  packages:
+    - bash
+    - coreutils
+    - docker-cli
+    - findutils
+    - git
+    - grep
+    - jq
+    - make
+    - ruby-3.4
+    - ruby3.4-json
+    # Lets stig_mappings_spec.rb run its XCCDF parsing case, which skips without
+    # rexml (and does on GitHub Actions, where the bundle lacks it).
+    - ruby3.4-rexml
+    - ruby3.4-rspec
+  services: [docker]
+  vars:
+    # /tmp is a RAM tmpfs capped at a quarter of memory. Keep fixtures and
+    # exported image filesystems on the scratch disk.
+    TMPDIR: /var/tmp
+    # Checks sets no LANG, so Ruby reads files as US-ASCII and fails on the
+    # UTF-8 in inspec.yml and the auditor's JSON reports. GitHub's Ubuntu
+    # runners set C.UTF-8. generate_stig_html_test.sh forces LC_ALL=C
+    # itself, so it still tests the C locale.
+    LANG: C.UTF-8
+
+checks:
+  control-tests:
+    description: >-
+      Runs the tools/ shell tests, validates that cinc-auditor discovers the
+      profile's controls, and runs the RSpec control suite, once for each
+      auditor image.
+    when:
+      # Every commit after merging, as control-tests.yml runs on every push to
+      # main; on pull requests, only when the profile or its tests change.
+      expr: >-
+        context.trigger == postsubmit || changed([
+          "controls/**", "libraries/**", "test/**", "tools/**", "inspec.yml",
+          "Makefile", ".chainguard/ci/controls.yaml",
+          ".chainguard/ci/services/docker/**"])
+    trigger: [presubmit, postsubmit]
+    # The auditor images are pulled and run as linux/amd64.
+    resources: medium-amd64
+    timeout: 30m
+    network:
+      # The union of the run page's suggested egress for both variations.
+      egress:
+        # cgr.dev images; the R2 host serves their layers.
+        - cgr.dev
+        - 9236a389bd48b984df91adc1bc924620.r2.cloudflarestorage.com
+        # Docker Hub: cincproject/auditor, and the made-up image names the
+        # tools/ shell tests pull to exercise a failed pull.
+        - registry-1.docker.io
+        - auth.docker.io
+        - production.cloudfront.docker.com
+    foreach:
+      - name: chainguard
+        vars:
+          CINC_AUDITOR_IMAGE: cgr.dev/chainguard/cinc-auditor:latest
+      - name: cincproject
+        vars:
+          CINC_AUDITOR_IMAGE: cincproject/auditor:latest
+    steps:
+      - name: tools shell tests
+        cmd: make tools-test
+      - name: profile validation
+        cmd: make cinc-check
+      - name: control suite
+        cmd: make controls
