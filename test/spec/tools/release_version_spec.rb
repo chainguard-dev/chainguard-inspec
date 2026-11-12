@@ -23,6 +23,12 @@ RSpec.describe ReleaseVersion do
   let(:tool_path) { File.join(repo_root, 'tools', 'release-version.rb') }
   let(:metadata_path) { File.join(repo_root, 'inspec.yml') }
 
+  # inspec.yml is UTF-8. Reading it in the locale's encoding would make these
+  # examples fail under the C locale for the same reason the tool used to.
+  def read_utf8(path)
+    File.read(path, encoding: Encoding::UTF_8)
+  end
+
   def commit(message, sha: 'abcdef1234567890')
     ReleaseVersion::Commit.new(sha: sha, message: message)
   end
@@ -198,7 +204,7 @@ RSpec.describe ReleaseVersion do
 
   describe '.read_metadata_version' do
     it "reads the repo's real inspec.yml" do
-      version = described_class.read_metadata_version(File.read(metadata_path))
+      version = described_class.read_metadata_version(read_utf8(metadata_path))
       expect(version).to match(/\A\d+\.\d+\.\d+\z/),
         "inspec.yml version #{version.inspect} is not a bare X.Y.Z value"
     end
@@ -216,7 +222,7 @@ RSpec.describe ReleaseVersion do
 
   describe '.write_metadata_version' do
     it "round-trips through the repo's real inspec.yml" do
-      original = File.read(metadata_path)
+      original = read_utf8(metadata_path)
       updated = described_class.write_metadata_version(original, '9.8.7')
 
       expect(described_class.read_metadata_version(updated)).to eq('9.8.7')
@@ -227,7 +233,7 @@ RSpec.describe ReleaseVersion do
     end
 
     it 'leaves the real inspec.yml byte-identical when already at that version' do
-      original = File.read(metadata_path)
+      original = read_utf8(metadata_path)
       current = described_class.read_metadata_version(original)
       expect(described_class.write_metadata_version(original, current)).to eq(original)
     end
@@ -261,9 +267,31 @@ RSpec.describe ReleaseVersion do
   # the exit statuses and the $GITHUB_OUTPUT formatting are covered rather than
   # only the pure logic underneath them.
   describe 'the command line interface' do
-    def run_tool(*args, chdir:)
-      out, err, status = Open3.capture3(RbConfig.ruby, tool_path, *args, chdir: chdir)
+    def run_tool(*args, chdir:, env: {})
+      out, err, status = Open3.capture3(env, RbConfig.ruby, tool_path, *args, chdir: chdir)
       [out, err, status.exitstatus]
+    end
+
+    # Builds a throwaway repo so `git log`'s own output drives the parser.
+    def git!(dir, *args)
+      out, err, status = Open3.capture3(
+        'git',
+        '-c', 'user.email=test@example.com',
+        '-c', 'user.name=Test',
+        '-c', 'commit.gpgsign=false',
+        '-c', 'tag.gpgsign=false',
+        *args,
+        chdir: dir
+      )
+      raise "git #{args.join(' ')} failed: #{err}#{out}" unless status.success?
+
+      out
+    end
+
+    def commit!(dir, message)
+      File.write(File.join(dir, 'file.txt'), message)
+      git!(dir, 'add', 'file.txt')
+      git!(dir, 'commit', '-m', message)
     end
 
     context 'get and set against a copy of the real inspec.yml' do
@@ -277,7 +305,7 @@ RSpec.describe ReleaseVersion do
 
       it 'get prints the recorded version and exits 0' do
         out, _err, code = run_tool('get', chdir: @dir)
-        expect([out.strip, code]).to eq([ReleaseVersion.read_metadata_version(File.read(metadata_path)), 0])
+        expect([out.strip, code]).to eq([ReleaseVersion.read_metadata_version(read_utf8(metadata_path)), 0])
       end
 
       it 'set rewrites the version, and get reads back what set wrote' do
@@ -296,12 +324,12 @@ RSpec.describe ReleaseVersion do
       end
 
       it 'set rejects a malformed version and leaves the file untouched' do
-        before_content = File.read(File.join(@dir, 'inspec.yml'))
+        before_content = File.binread(File.join(@dir, 'inspec.yml'))
         _out, err, code = run_tool('set', '1.2', chdir: @dir)
 
         expect(code).to eq(1), "expected a failing exit status, got #{code}"
         expect(err).to include('not a X.Y.Z version')
-        expect(File.read(File.join(@dir, 'inspec.yml'))).to eq(before_content)
+        expect(File.binread(File.join(@dir, 'inspec.yml'))).to eq(before_content)
       end
 
       it 'set without a version argument fails' do
@@ -349,29 +377,74 @@ RSpec.describe ReleaseVersion do
       end
     end
 
+    # Under the C/POSIX locale, Ruby's default external encoding is US-ASCII, so
+    # text read without an explicit encoding fails on its first non-ASCII byte.
+    # The real inspec.yml's comments carry em-dashes, and commit messages can too.
+    context 'under the C locale' do
+      let(:c_locale) { { 'LC_ALL' => 'C', 'LANG' => 'C' } }
+      let(:recorded_version) do
+        ReleaseVersion.read_metadata_version(read_utf8(metadata_path))
+      end
+
+      around do |example|
+        Dir.mktmpdir('release-version-c-locale') do |dir|
+          git!(dir, 'init', '--initial-branch=main', '.')
+          FileUtils.cp(metadata_path, File.join(dir, 'inspec.yml'))
+          git!(dir, 'add', 'inspec.yml')
+          git!(dir, 'commit', '-m', 'chore: initial')
+          git!(dir, 'tag', 'v1.0.4')
+          commit!(dir, "fix: accept a quoted stamp \u2014 as sha256sum writes it")
+          @dir = dir
+          example.run
+        end
+      end
+
+      # Without this, the `get` and `set` rows would pass vacuously if the
+      # non-ASCII text were ever removed from inspec.yml.
+      it 'starts from an inspec.yml that contains non-ASCII text' do
+        expect(File.binread(metadata_path)).to match(/[\x80-\xff]/n)
+      end
+
+      [
+        ['get prints the version recorded in the real inspec.yml', %w[get],       -> { recorded_version }],
+        ['set rewrites the version in the real inspec.yml',        %w[set 2.5.9], -> { '' }],
+        ['next reads a commit message containing an em-dash',      %w[next],      -> { '1.0.5' }]
+      ].each do |name, args, want_out|
+        it name do
+          out, err, code = run_tool(*args, chdir: @dir, env: c_locale)
+          want = [instance_exec(&want_out), 0]
+          expect([out.strip, code]).to eq(want),
+            "#{args.join(' ')} under LC_ALL=C: want out/exit #{want.inspect}, " \
+            "got #{[out.strip, code].inspect} (err=#{err.inspect})"
+        end
+      end
+
+      # A fix that transcoded on the way in or out could pass the rows above and
+      # still mangle the em-dashes in the file it rewrites.
+      it 'set leaves the rest of inspec.yml byte-for-byte unchanged' do
+        path = File.join(@dir, 'inspec.yml')
+        original = File.binread(path)
+        _out, err, code = run_tool('set', '2.5.9', chdir: @dir, env: c_locale)
+        expect(code).to eq(0), "set under LC_ALL=C failed: #{err}"
+
+        want = original.sub(/^version: .*$/n, 'version: 2.5.9'.b)
+        expect(File.binread(path)).to eq(want),
+          'set under LC_ALL=C changed bytes outside the version: line'
+      end
+
+      # Only a minor or major bump's reason quotes the commit that triggered it.
+      it 'next --github-output keeps a non-ASCII feature subject in its reason' do
+        commit!(@dir, "feat: verify the truststore \u2014 sidecar and all")
+        out, err, code = run_tool('next', '--github-output', chdir: @dir, env: c_locale)
+        expect(code).to eq(0), "next --github-output under LC_ALL=C failed: #{err}"
+
+        reason = out.b.lines.find { |l| l.start_with?('reason='.b) }
+        expect(reason).to include("verify the truststore \u2014 sidecar and all".b),
+          "want the em-dash subject in the reason line, got #{out.inspect}"
+      end
+    end
+
     context 'next, against commits a real git produced' do
-      # Builds a throwaway repo so `git log`'s own output drives the parser.
-      def git!(dir, *args)
-        out, err, status = Open3.capture3(
-          'git',
-          '-c', 'user.email=test@example.com',
-          '-c', 'user.name=Test',
-          '-c', 'commit.gpgsign=false',
-          '-c', 'tag.gpgsign=false',
-          *args,
-          chdir: dir
-        )
-        raise "git #{args.join(' ')} failed: #{err}#{out}" unless status.success?
-
-        out
-      end
-
-      def commit!(dir, message)
-        File.write(File.join(dir, 'file.txt'), message)
-        git!(dir, 'add', 'file.txt')
-        git!(dir, 'commit', '-m', message)
-      end
-
       around do |example|
         Dir.mktmpdir('release-version-git') do |dir|
           git!(dir, 'init', '--initial-branch=main', '.')
