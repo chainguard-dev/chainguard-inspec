@@ -1,0 +1,13 @@
+# Copyright 2026 Chainguard, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+# Runs dockerd in the check's VM. Copied from
+# chainguard-dev/terraform-provider-apko .chainguard/ci/services/docker/ at
+# a75631c3deddf89bf48f65bb295878d65efd78ab.
+version: 1
+name: docker
+packages: [busybox, docker, iptables]
+cmd: [sh, ./docker.sh]
+timeout: 5m
+exports:
+  DOCKER_HOST: unix:///var/run/docker.sock

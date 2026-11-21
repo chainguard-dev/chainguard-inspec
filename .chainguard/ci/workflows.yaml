@@ -1,0 +1,46 @@
+# Copyright 2026 Chainguard, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+# Lints the GitHub Actions workflows. Mirrors actionlint.yaml and zizmor.yaml,
+# and the Makefile's actionlint and zizmor targets.
+version: 1
+
+environment:
+  packages: [actionlint, shellcheck, zizmor, bash, findutils, grep]
+
+checks:
+  actionlint:
+    description: >-
+      Runs actionlint, with shellcheck, over every workflow under
+      .github/workflows except dependabot's.
+    when:
+      changed:
+        - ".github/workflows/**"
+        - ".github/actions/**"
+        - ".chainguard/ci/workflows.yaml"
+    trigger: [presubmit, postsubmit]
+    timeout: 5m
+    vars:
+      SHELLCHECK_OPTS: "--exclude=SC2129"
+    shell: bash
+    script: |
+      set -euo pipefail
+      mapfile -t yamls < <(find .github/workflows -name '*.y*ml' | grep -v dependabot.)
+      actionlint "${yamls[@]}"
+
+  zizmor:
+    description: >-
+      Runs zizmor over .github/workflows with .github/zizmor.yml. It runs
+      offline, so the audits that query GitHub are skipped.
+    # Advisory to match zizmor.yaml, where findings go to Code Scanning and
+    # don't fail the job.
+    advisory: true
+    when:
+      changed:
+        - ".github/workflows/**"
+        - ".github/actions/**"
+        - ".github/zizmor.yml"
+        - ".chainguard/ci/workflows.yaml"
+    trigger: [presubmit, postsubmit]
+    timeout: 5m
+    cmd: zizmor --offline .github/workflows/
